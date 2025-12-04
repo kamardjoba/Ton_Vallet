@@ -22,6 +22,7 @@ src/
 │   └── crypto.ts             # Шифрование seed phrase (AES-GCM)
 ├── components/
 │   └── Wallet.tsx            # Основной компонент кошелька
+├── polyfills.ts              # Полифиллы для Node.js API (Buffer, process)
 ├── App.tsx                    # Корневой компонент
 ├── main.tsx                   # Точка входа
 └── index.css                  # Глобальные стили
@@ -32,6 +33,8 @@ src/
 ```bash
 npm install
 ```
+
+**Важно**: Проект использует полифиллы для Node.js API (Buffer, process) для работы `tonweb` в браузере. Полифиллы автоматически инициализируются при запуске приложения.
 
 ## Разработка
 

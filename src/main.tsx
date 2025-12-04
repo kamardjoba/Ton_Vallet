@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import './polyfills'; // Import polyfills first
 import App from './App';
 import './index.css';
 

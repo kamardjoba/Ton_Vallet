@@ -3,10 +3,29 @@
  * Provides functions for interacting with TON blockchain using TonWeb
  */
 
-import TonWeb from 'tonweb';
-import { mnemonicToSeed } from '@ton/crypto';
+// Import from @ton/crypto using namespace import to avoid ESM issues
+import * as TonCrypto from '@ton/crypto';
+const { mnemonicToSeed, keyPairFromSeed, keyPairFromSecretKey } = TonCrypto;
 
-const TONWEB_API_URL = 'https://toncenter.com/api/v2';
+// tonweb uses CommonJS, we'll import it as a namespace
+// Vite will handle CommonJS transformation
+// @ts-ignore - tonweb is CommonJS module
+import * as TonWebModule from 'tonweb';
+
+// Extract default export or use the module itself
+const TonWeb = (TonWebModule as any).default || TonWebModule;
+
+// Buffer will be available globally after polyfills.ts is loaded in main.tsx
+// For TypeScript, we use window.Buffer which is set by polyfills
+const getBuffer = (): any => {
+  if (typeof window !== 'undefined' && (window as any).Buffer) {
+    return (window as any).Buffer;
+  }
+  throw new Error('Buffer polyfill not loaded. Make sure polyfills.ts is imported first.');
+};
+
+// Use public TON API endpoint
+const TONWEB_API_URL = 'https://toncenter.com/api/v2/jsonRPC';
 
 export interface WalletState {
   address: string;
@@ -26,7 +45,7 @@ export interface Transaction {
 /**
  * Initializes TonWeb instance
  */
-export function initTonWeb(): TonWeb {
+export function initTonWeb(): any {
   return new TonWeb(new TonWeb.HttpProvider(TONWEB_API_URL));
 }
 
@@ -46,8 +65,12 @@ export async function generateWalletFromSeed(seedPhrase: string): Promise<Wallet
   }
 
   try {
-    const seed = await mnemonicToSeed(words);
-    const keyPair = TonWeb.utils.keyPairFromSeed(seed);
+    // mnemonicToSeed requires seed string as second parameter
+    // Use "TON default seed" for standard wallet generation
+    const seed = await mnemonicToSeed(words, 'TON default seed');
+    // keyPairFromSeed expects Buffer, seed is already Buffer from mnemonicToSeed
+    // Use first 32 bytes of seed for key pair generation
+    const keyPair = keyPairFromSeed(seed.slice(0, 32));
 
     const tonweb = initTonWeb();
     const WalletClass = tonweb.wallet.all['v4R2'];
@@ -58,14 +81,46 @@ export async function generateWalletFromSeed(seedPhrase: string): Promise<Wallet
     const address = await wallet.getAddress();
     const addressString = address.toString(true, true, true);
 
+    // Convert Buffer to hex string
+    const publicKeyHex = keyPair.publicKey.toString('hex');
+    const privateKeyHex = keyPair.secretKey.toString('hex');
+
     return {
       address: addressString,
-      publicKey: TonWeb.utils.bytesToHex(keyPair.publicKey),
-      privateKey: TonWeb.utils.bytesToHex(keyPair.secretKey),
+      publicKey: publicKeyHex,
+      privateKey: privateKeyHex,
     };
   } catch (error) {
     throw new Error(`Failed to generate wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
+}
+
+/**
+ * Helper function to retry API calls with exponential backoff
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  initialDelay: number = 1000
+): Promise<T> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const isRateLimit = error?.message?.includes('429') || 
+                         error?.message?.includes('Ratelimit') ||
+                         error?.message?.includes('Too Many Requests');
+      
+      if (isRateLimit && attempt < maxRetries - 1) {
+        const delay = initialDelay * Math.pow(2, attempt);
+        console.warn(`Rate limit hit, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error('Max retries exceeded');
 }
 
 /**
@@ -80,10 +135,38 @@ export async function getBalance(address: string): Promise<string> {
 
   try {
     const tonweb = initTonWeb();
-    const balance = await tonweb.provider.getBalance(address);
-    return balance.toString();
-  } catch (error) {
-    throw new Error(`Failed to get balance: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    
+    // Retry with backoff for rate limit errors
+    const balance = await retryWithBackoff(
+      () => tonweb.provider.getBalance(address),
+      2, // Max 2 retries
+      2000 // Start with 2 second delay
+    );
+    
+    // Check if balance is a valid number
+    const balanceStr = balance?.toString() || '0';
+    if (isNaN(Number(balanceStr)) || 
+        balanceStr.includes('error') || 
+        balanceStr.includes('Error') ||
+        balanceStr.includes('Ratelimit') ||
+        balanceStr.includes('429')) {
+      console.warn('Invalid balance response:', balanceStr);
+      return '0';
+    }
+    
+    return balanceStr;
+  } catch (error: any) {
+    const errorMsg = error?.message || String(error);
+    
+    // Don't log rate limit errors as errors, just warn
+    if (errorMsg.includes('429') || errorMsg.includes('Ratelimit') || errorMsg.includes('Too Many Requests')) {
+      console.warn('Rate limit exceeded for balance request. Please try again later.');
+    } else {
+      console.error('Failed to get balance:', error);
+    }
+    
+    // Return '0' instead of throwing to prevent app crash
+    return '0';
   }
 }
 
@@ -91,9 +174,24 @@ export async function getBalance(address: string): Promise<string> {
  * Converts nanoTON to TON
  */
 export function nanoToTon(nano: string): string {
-  const nanoBigInt = BigInt(nano);
-  const ton = Number(nanoBigInt) / 1e9;
-  return ton.toFixed(9).replace(/\.?0+$/, '');
+  // Validate input
+  if (!nano || typeof nano !== 'string') {
+    return '0';
+  }
+  
+  // Check if it's a valid number string
+  if (isNaN(Number(nano)) || nano.includes('error') || nano.includes('Error') || nano.includes('Ratelimit')) {
+    return '0';
+  }
+  
+  try {
+    const nanoBigInt = BigInt(nano);
+    const ton = Number(nanoBigInt) / 1e9;
+    return ton.toFixed(9).replace(/\.?0+$/, '');
+  } catch (error) {
+    console.error('Failed to convert nanoTON to TON:', error, 'Input:', nano);
+    return '0';
+  }
 }
 
 /**
@@ -127,9 +225,13 @@ export async function sendTransaction(
 
   try {
     const tonweb = initTonWeb();
-    const keyPair = TonWeb.utils.keyPairFromSeed(
-      TonWeb.utils.hexToBytes(privateKey)
-    );
+    
+    // Convert hex string to Buffer (available globally from polyfills)
+    const Buffer = getBuffer();
+    const privateKeyBuffer = Buffer.from(privateKey, 'hex');
+    
+    // Reconstruct keypair from secret key (private key)
+    const keyPair = keyPairFromSecretKey(privateKeyBuffer);
 
     const WalletClass = tonweb.wallet.all['v4R2'];
     const wallet = new WalletClass(tonweb.provider, {
@@ -144,7 +246,7 @@ export async function sendTransaction(
       toAddress: toAddress,
       amount: amountNano,
       seqno: seqno || 0,
-      payload: comment ? TonWeb.utils.stringToBytes(comment) : undefined,
+      payload: comment ? new TextEncoder().encode(comment) : undefined,
       sendMode: 3,
     });
 
@@ -171,18 +273,38 @@ export async function getTransactionHistory(
 
   try {
     const tonweb = initTonWeb();
-    const transactions = await tonweb.provider.getTransactions(address, limit);
+    
+    // Retry with backoff for rate limit errors
+    const transactions = await retryWithBackoff(
+      () => tonweb.provider.getTransactions(address, limit),
+      2, // Max 2 retries
+      2000 // Start with 2 second delay
+    );
 
-    return transactions.map((tx: TonWeb.utils.Transaction) => ({
-      hash: tx.transaction_id.hash,
+    if (!transactions || !Array.isArray(transactions)) {
+      return [];
+    }
+
+    return transactions.map((tx: any) => ({
+      hash: tx.transaction_id?.hash || '',
       from: tx.in_msg?.source_address || '',
       to: tx.out_msgs?.[0]?.destination_address || address,
       value: tx.in_msg?.value || '0',
-      timestamp: tx.utime * 1000, // Convert to milliseconds
+      timestamp: tx.utime ? tx.utime * 1000 : Date.now(), // Convert to milliseconds
       status: 'success' as const,
     }));
-  } catch (error) {
-    throw new Error(`Failed to get transaction history: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  } catch (error: any) {
+    const errorMsg = error?.message || String(error);
+    
+    // Don't log rate limit errors as errors, just warn
+    if (errorMsg.includes('429') || errorMsg.includes('Ratelimit') || errorMsg.includes('Too Many Requests')) {
+      console.warn('Rate limit exceeded for transaction history. Please try again later.');
+    } else {
+      console.error('Failed to get transaction history:', error);
+    }
+    
+    // Return empty array instead of throwing to prevent app crash
+    return [];
   }
 }
 

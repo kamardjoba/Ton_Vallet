@@ -27,11 +27,12 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
 
   useEffect(() => {
     if (isUnlocked && wallet) {
+      // Initial balance fetch
       updateBalance();
-      // Auto-refresh balance every 30 seconds
+      // Auto-refresh balance every 60 seconds (reduced frequency to avoid rate limits)
       const interval = setInterval(() => {
         updateBalance();
-      }, 30000);
+      }, 60000); // Increased to 60 seconds to reduce API calls
       return () => clearInterval(interval);
     }
   }, [isUnlocked, wallet, updateBalance]);
