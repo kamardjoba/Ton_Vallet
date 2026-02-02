@@ -9,6 +9,7 @@ import { validateTONAddress, validateTONAmount, validateComment } from '../utils
 import { HapticFeedback } from '../utils/telegram';
 import { formatError } from '../utils/errors';
 import LoadingSpinner from './LoadingSpinner';
+import AuthModal from './AuthModal';
 
 interface SendModalProps {
   isOpen: boolean;
@@ -16,11 +17,17 @@ interface SendModalProps {
 }
 
 export default function SendModal({ isOpen, onClose }: SendModalProps) {
-  const { sendTon, error, clearError } = useWalletStore();
+  const { sendTon, error, clearError, wallet, encryptedSeed } = useWalletStore();
   const [toAddress, setToAddress] = useState('');
   const [amount, setAmount] = useState('');
   const [comment, setComment] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [pendingTransaction, setPendingTransaction] = useState<{
+    toAddress: string;
+    amount: string;
+    comment?: string;
+  } | null>(null);
 
   if (!isOpen) return null;
 
@@ -50,17 +57,34 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
       return;
     }
 
-    HapticFeedback.impact('light');
+    // Store transaction details and show auth modal
+    setPendingTransaction({
+      toAddress,
+      amount,
+      comment: comment || undefined,
+    });
+    setShowAuthModal(true);
+  };
+
+  const handleAuthenticated = async () => {
+    if (!pendingTransaction) return;
+
+    setShowAuthModal(false);
     setIsLoading(true);
     clearError();
 
     try {
-      await sendTon(toAddress, amount, comment || undefined);
+      await sendTon(
+        pendingTransaction.toAddress,
+        pendingTransaction.amount,
+        pendingTransaction.comment
+      );
       HapticFeedback.notification('success');
       // Reset form
       setToAddress('');
       setAmount('');
       setComment('');
+      setPendingTransaction(null);
       onClose();
     } catch (err) {
       HapticFeedback.notification('error');
@@ -70,19 +94,52 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
     }
   };
 
+  const handlePasswordAuth = async (password: string) => {
+    // Import decryptSeedPhrase to verify password
+    const { decryptSeedPhrase } = await import('../crypto/crypto');
+    
+    if (!encryptedSeed) {
+      throw new Error('Wallet not initialized');
+    }
+    
+    // Verify password by attempting to decrypt seed phrase
+    // This doesn't change wallet state, just verifies the password
+    try {
+      await decryptSeedPhrase(encryptedSeed, password);
+      // Password is correct
+    } catch (error) {
+      // Password is incorrect
+      throw new Error('Invalid password');
+    }
+  };
+
   const handleClose = () => {
-    if (!isLoading) {
+    if (!isLoading && !showAuthModal) {
       setToAddress('');
       setAmount('');
       setComment('');
+      setPendingTransaction(null);
       clearError();
       onClose();
     }
   };
 
+  const handleAuthCancel = () => {
+    setShowAuthModal(false);
+    setPendingTransaction(null);
+  };
+
   return (
-    <div className="modal-overlay" onClick={handleClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <>
+      <AuthModal
+        isOpen={showAuthModal}
+        walletAddress={wallet?.address || ''}
+        onAuthenticated={handleAuthenticated}
+        onPasswordAuth={handlePasswordAuth}
+        onCancel={handleAuthCancel}
+      />
+      <div className="modal-overlay" onClick={handleClose}>
+        <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Send TON</h2>
           <button className="modal-close" onClick={handleClose} disabled={isLoading}>
@@ -371,7 +428,8 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
           }
         }
       `}</style>
-    </div>
+      </div>
+    </>
   );
 }
 
