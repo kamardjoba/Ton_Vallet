@@ -5,11 +5,23 @@
 
 /**
  * Checks if WebAuthn/biometric authentication is available
+ * Also checks Telegram WebApp API for biometric support
  */
 export function isBiometricAvailable(): boolean {
   if (typeof window === 'undefined') return false;
   
-  // Check for WebAuthn support
+  // Check Telegram WebApp API first (for Telegram Mini Apps)
+  if (window.Telegram?.WebApp) {
+    const tg = window.Telegram.WebApp;
+    // Telegram WebApp may support biometrics on mobile devices
+    // We'll assume it's available on mobile devices in Telegram
+    if (tg.platform === 'ios' || tg.platform === 'android') {
+      console.log('Telegram WebApp detected on mobile platform:', tg.platform);
+      return true; // Assume biometrics available on mobile Telegram
+    }
+  }
+  
+  // Check for WebAuthn support (for regular browsers)
   if (!window.PublicKeyCredential) {
     return false;
   }
@@ -26,13 +38,30 @@ export function isBiometricAvailable(): boolean {
  * Checks if biometric authentication is available and ready to use
  */
 export async function checkBiometricAvailability(): Promise<boolean> {
+  // Check Telegram WebApp first
+  if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+    const tg = window.Telegram.WebApp;
+    // On mobile Telegram, assume biometrics are available
+    if (tg.platform === 'ios' || tg.platform === 'android') {
+      console.log('Biometric available via Telegram WebApp on', tg.platform);
+      return true;
+    }
+  }
+  
   if (!isBiometricAvailable()) {
     return false;
   }
   
   try {
-    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    return available;
+    // For WebAuthn, check if platform authenticator is available
+    if (PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
+      const available = await Promise.race([
+        PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2000))
+      ]);
+      return available;
+    }
+    return false;
   } catch (error) {
     console.warn('Error checking biometric availability:', error);
     return false;
@@ -42,39 +71,71 @@ export async function checkBiometricAvailability(): Promise<boolean> {
 /**
  * Authenticates user using biometrics (Face ID / Touch ID)
  * Returns true if authentication succeeds, false otherwise
+ * Works with both Telegram WebApp and WebAuthn
  */
 export async function authenticateWithBiometrics(): Promise<boolean> {
+  // Try Telegram WebApp API first (for Telegram Mini Apps)
+  if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+    const tg = window.Telegram.WebApp;
+    if (tg.platform === 'ios' || tg.platform === 'android') {
+      console.log('Attempting biometric auth via Telegram WebApp...');
+      // In Telegram Mini App, we can try WebAuthn which should trigger device biometrics
+      // Telegram's WebView should support WebAuthn on mobile devices
+      try {
+        return await authenticateWithWebAuthn();
+      } catch (error) {
+        console.warn('WebAuthn failed in Telegram, trying alternative:', error);
+        // Fallback: return false to show password
+        return false;
+      }
+    }
+  }
+  
+  // Regular WebAuthn for non-Telegram browsers
+  return await authenticateWithWebAuthn();
+}
+
+/**
+ * Internal function to authenticate with WebAuthn
+ */
+async function authenticateWithWebAuthn(): Promise<boolean> {
   if (!isBiometricAvailable()) {
     return false;
   }
   
   try {
     // Check if platform authenticator is available
-    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    if (!available) {
-      console.log('Platform authenticator (biometrics) not available');
-      return false;
+    if (PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
+      const available = await Promise.race([
+        PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2000))
+      ]);
+      
+      if (!available) {
+        console.log('Platform authenticator (biometrics) not available');
+        return false;
+      }
     }
     
     // Create a challenge for authentication
     const challenge = new Uint8Array(32);
     crypto.getRandomValues(challenge);
     
-    // Convert challenge to base64url
-    const challengeBase64 = base64UrlEncode(challenge);
-    
     // Create credential request
     const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
       challenge: challenge,
       allowCredentials: [],
       userVerification: 'required',
-      timeout: 60000, // 60 seconds timeout
+      timeout: 30000, // 30 seconds timeout (reduced for faster response)
     };
     
-    // Request authentication
-    const credential = await navigator.credentials.get({
-      publicKey: publicKeyCredentialRequestOptions,
-    }) as PublicKeyCredential | null;
+    // Request authentication with timeout
+    const credential = await Promise.race([
+      navigator.credentials.get({
+        publicKey: publicKeyCredentialRequestOptions,
+      }) as Promise<PublicKeyCredential | null>,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 30000))
+    ]);
     
     if (credential && credential.type === 'public-key') {
       console.log('✅ Biometric authentication successful');
@@ -84,8 +145,8 @@ export async function authenticateWithBiometrics(): Promise<boolean> {
     return false;
   } catch (error: any) {
     // User cancelled or authentication failed
-    if (error.name === 'NotAllowedError' || error.name === 'NotSupportedError') {
-      console.log('Biometric authentication cancelled or not supported');
+    if (error.name === 'NotAllowedError' || error.name === 'NotSupportedError' || error.name === 'AbortError') {
+      console.log('Biometric authentication cancelled or not supported:', error.name);
       return false;
     }
     

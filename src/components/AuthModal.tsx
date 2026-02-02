@@ -55,9 +55,31 @@ export default function AuthModal({
       ]);
       setBiometricAvailable(available);
       console.log('Biometric available:', available);
+      
+      // Also check if we're in Telegram Mini App
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        const tg = window.Telegram.WebApp;
+        console.log('Telegram WebApp platform:', tg.platform);
+        // On mobile Telegram, always show biometric option
+        if (tg.platform === 'ios' || tg.platform === 'android') {
+          setBiometricAvailable(true);
+          console.log('Force enabling biometric for Telegram mobile');
+        }
+      }
     } catch (error) {
       console.error('Error checking biometric availability:', error);
-      setBiometricAvailable(false);
+      // In Telegram Mini App on mobile, assume biometrics are available
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        const tg = window.Telegram.WebApp;
+        if (tg.platform === 'ios' || tg.platform === 'android') {
+          setBiometricAvailable(true);
+          console.log('Assuming biometric available in Telegram mobile');
+        } else {
+          setBiometricAvailable(false);
+        }
+      } else {
+        setBiometricAvailable(false);
+      }
     }
   };
 
@@ -251,7 +273,8 @@ export default function AuthModal({
                 </button>
               </form>
 
-              {biometricAvailable && !isAuthenticating && (
+              {/* Always show biometric button on mobile Telegram, or if available */}
+              {((biometricAvailable || (typeof window !== 'undefined' && window.Telegram?.WebApp?.platform === 'ios') || (typeof window !== 'undefined' && window.Telegram?.WebApp?.platform === 'android')) && !isAuthenticating) && (
                 <button
                   className="auth-button biometric-button"
                   onClick={() => {
@@ -261,7 +284,11 @@ export default function AuthModal({
                   disabled={isPasswordLoading}
                   style={{ marginTop: '12px' }}
                 >
-                  Use Face ID / Touch ID Instead
+                  {typeof window !== 'undefined' && window.Telegram?.WebApp?.platform === 'ios' 
+                    ? 'Use Face ID' 
+                    : typeof window !== 'undefined' && window.Telegram?.WebApp?.platform === 'android'
+                    ? 'Use Fingerprint / Face Unlock'
+                    : 'Use Face ID / Touch ID Instead'}
                 </button>
               )}
             </div>
