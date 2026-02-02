@@ -8,9 +8,12 @@ import type { StateCreator } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { WalletState } from '../blockchain/ton';
 import type { EncryptedData } from '../crypto/crypto';
-import { generateWalletFromSeed, getBalance, sendTransaction, getTransactionHistory } from '../blockchain/ton';
+import { generateWalletFromSeed, getBalance, sendTransaction, getTransactionHistory, getNFTItems, getJettonBalances } from '../blockchain/ton';
 import { encryptSeedPhrase, decryptSeedPhrase } from '../crypto/crypto';
-import type { Transaction } from '../blockchain/ton';
+import type { Transaction, NFTItem, JettonToken } from '../blockchain/ton';
+import { validateSeedPhrase, validateTONAddress, validateTONAmount, validatePassword } from '../utils/validation';
+import { securityLogger, rateLimiter } from '../utils/security';
+import { formatError, getUserFriendlyError } from '../utils/errors';
 
 interface WalletStore {
   // Wallet state
@@ -24,6 +27,16 @@ interface WalletStore {
   transactions: Transaction[];
   isLoadingBalance: boolean;
   isLoadingTransactions: boolean;
+  hasLoadedBalance: boolean; // Track if balance was loaded at least once
+  
+  // NFT state
+  nfts: NFTItem[];
+  isLoadingNFTs: boolean;
+  nftError: string | null;
+  
+  // Jetton tokens state
+  jettonTokens: JettonToken[];
+  isLoadingJettons: boolean;
   
   // Error state
   error: string | null;
@@ -35,6 +48,8 @@ interface WalletStore {
   updateBalance: () => Promise<void>;
   sendTon: (toAddress: string, amount: string, comment?: string) => Promise<string>;
   refreshTransactions: () => Promise<void>;
+  loadNFTs: () => Promise<void>;
+  loadJettons: () => Promise<void>;
   clearError: () => void;
   reset: () => void;
 }
@@ -49,6 +64,12 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
       transactions: [],
       isLoadingBalance: false,
       isLoadingTransactions: false,
+      hasLoadedBalance: false,
+      nfts: [],
+      isLoadingNFTs: false,
+      nftError: null,
+      jettonTokens: [],
+      isLoadingJettons: false,
       error: null,
 
       /**
@@ -57,6 +78,25 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
       initializeWallet: async (seedPhrase: string, password: string) => {
         try {
           set({ error: null });
+          
+          // Validate inputs
+          const seedValidation = validateSeedPhrase(seedPhrase);
+          if (!seedValidation.valid) {
+            const errorMsg = seedValidation.error || 'Invalid seed phrase';
+            securityLogger.log('WALLET_INIT_FAILED', { reason: 'invalid_seed' });
+            set({ error: errorMsg });
+            throw new Error(errorMsg);
+          }
+
+          const passwordValidation = validatePassword(password);
+          if (!passwordValidation.valid) {
+            const errorMsg = passwordValidation.error || 'Invalid password';
+            securityLogger.log('WALLET_INIT_FAILED', { reason: 'invalid_password' });
+            set({ error: errorMsg });
+            throw new Error(errorMsg);
+          }
+          
+          securityLogger.log('WALLET_INIT_START', {});
           
           // Generate wallet from seed phrase
           const wallet = await generateWalletFromSeed(seedPhrase);
@@ -71,13 +111,19 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
             isUnlocked: true,
           });
           
-          // Fetch initial balance
-          await get().updateBalance();
-          await get().refreshTransactions();
+          securityLogger.log('WALLET_INIT_SUCCESS', { address: wallet.address });
+          
+          // Fetch initial balance, transactions, and jettons in parallel for faster loading
+          await Promise.all([
+            get().updateBalance(),
+            get().refreshTransactions(),
+            get().loadJettons(),
+          ]);
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Failed to initialize wallet';
-          set({ error: errorMessage });
-          throw new Error(errorMessage);
+          const errorDetails = getUserFriendlyError(error);
+          securityLogger.log('WALLET_INIT_ERROR', { error: errorDetails.code });
+          set({ error: errorDetails.userMessage });
+          throw new Error(errorDetails.userMessage);
         }
       },
 
@@ -90,10 +136,15 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
           
           const { encryptedSeed } = get();
           if (!encryptedSeed) {
-            throw new Error('No encrypted seed found. Please initialize wallet first.');
+            const errorDetails = getUserFriendlyError('WALLET_NOT_INITIALIZED');
+            securityLogger.log('WALLET_UNLOCK_FAILED', { reason: 'not_initialized' });
+            set({ error: errorDetails.userMessage, isUnlocked: false });
+            throw new Error(errorDetails.userMessage);
           }
           
-          // Decrypt seed phrase
+          securityLogger.log('WALLET_UNLOCK_ATTEMPT', {});
+          
+          // Decrypt seed phrase (with timing attack protection)
           const seedPhrase = await decryptSeedPhrase(encryptedSeed, password);
           
           // Regenerate wallet from decrypted seed
@@ -104,13 +155,19 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
             isUnlocked: true,
           });
           
-          // Fetch balance and transactions
-          await get().updateBalance();
-          await get().refreshTransactions();
+          securityLogger.log('WALLET_UNLOCK_SUCCESS', { address: wallet.address });
+          
+          // Fetch balance, transactions, and jettons in parallel for faster loading
+          await Promise.all([
+            get().updateBalance(),
+            get().refreshTransactions(),
+            get().loadJettons(),
+          ]);
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Failed to unlock wallet';
-          set({ error: errorMessage, isUnlocked: false });
-          throw new Error(errorMessage);
+          const errorDetails = getUserFriendlyError(error);
+          securityLogger.log('WALLET_UNLOCK_FAILED', { reason: errorDetails.code });
+          set({ error: errorDetails.userMessage, isUnlocked: false });
+          throw new Error(errorDetails.userMessage);
         }
       },
 
@@ -123,6 +180,7 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
           isUnlocked: false,
           balance: '0',
           transactions: [],
+          hasLoadedBalance: false,
         });
       },
 
@@ -130,18 +188,40 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
        * Updates wallet balance from blockchain
        */
       updateBalance: async () => {
-        const { wallet } = get();
+        const { wallet, isLoadingBalance } = get();
         if (!wallet || !wallet.address) {
           return;
         }
         
+        // Prevent multiple simultaneous balance updates
+        if (isLoadingBalance) {
+          console.log('⏳ Balance update already in progress, skipping...');
+          return;
+        }
+        
         try {
-          set({ isLoadingBalance: true, error: null });
+          const { hasLoadedBalance } = get();
+          
+          // Only show loading on first load
+          if (!hasLoadedBalance) {
+            set({ isLoadingBalance: true, error: null });
+          } else {
+            set({ error: null });
+          }
+          
+          // Get balance (will use cache if available)
           const balance = await getBalance(wallet.address);
-          set({ balance, isLoadingBalance: false });
+          set({ balance, isLoadingBalance: false, hasLoadedBalance: true });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to update balance';
-          set({ error: errorMessage, isLoadingBalance: false });
+          // Always reset loading state
+          const { balance: currentBalance } = get();
+          // Only set hasLoadedBalance to true if we have a valid balance (not '0')
+          set({ isLoadingBalance: false, hasLoadedBalance: currentBalance !== '0' });
+          // Don't show rate limit errors to user, just use cached/previous balance
+          if (!errorMessage.includes('rate limit') && !errorMessage.includes('Rate limit')) {
+            set({ error: errorMessage });
+          }
         }
       },
 
@@ -151,22 +231,59 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
       sendTon: async (toAddress: string, amount: string, comment?: string) => {
         const { wallet } = get();
         if (!wallet || !wallet.privateKey) {
-          throw new Error('Wallet is not unlocked');
+          const errorDetails = getUserFriendlyError('WALLET_LOCKED');
+          securityLogger.log('SEND_TON_FAILED', { reason: 'wallet_locked' });
+          set({ error: errorDetails.userMessage });
+          throw new Error(errorDetails.userMessage);
+        }
+        
+        // Validate inputs
+        const addressValidation = validateTONAddress(toAddress);
+        if (!addressValidation.valid) {
+          const errorMsg = addressValidation.error || 'Invalid address';
+          securityLogger.log('SEND_TON_FAILED', { reason: 'invalid_address' });
+          set({ error: errorMsg });
+          throw new Error(errorMsg);
+        }
+
+        const amountValidation = validateTONAmount(amount);
+        if (!amountValidation.valid) {
+          const errorMsg = amountValidation.error || 'Invalid amount';
+          securityLogger.log('SEND_TON_FAILED', { reason: 'invalid_amount' });
+          set({ error: errorMsg });
+          throw new Error(errorMsg);
+        }
+
+        // Check rate limiting
+        const rateLimitKey = `send_${wallet.address}`;
+        if (!rateLimiter.isAllowed(rateLimitKey)) {
+          const waitTime = rateLimiter.getTimeUntilNext(rateLimitKey);
+          const errorDetails = getUserFriendlyError('RATE_LIMIT');
+          securityLogger.log('SEND_TON_RATE_LIMIT', { waitTime });
+          set({ error: `${errorDetails.userMessage} Please wait ${Math.ceil(waitTime / 1000)} seconds.` });
+          throw new Error(errorDetails.userMessage);
         }
         
         try {
           set({ error: null });
+          securityLogger.log('SEND_TON_START', { toAddress, amount: '[REDACTED]' });
+          
           const txHash = await sendTransaction(wallet.privateKey, toAddress, amount, comment);
           
+          securityLogger.log('SEND_TON_SUCCESS', { txHash });
+          
           // Refresh balance and transactions after sending
-          await get().updateBalance();
-          await get().refreshTransactions();
+          await Promise.all([
+            get().updateBalance(),
+            get().refreshTransactions(),
+          ]);
           
           return txHash;
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Failed to send transaction';
-          set({ error: errorMessage });
-          throw new Error(errorMessage);
+          const errorDetails = getUserFriendlyError(error);
+          securityLogger.log('SEND_TON_ERROR', { error: errorDetails.code });
+          set({ error: errorDetails.userMessage });
+          throw new Error(errorDetails.userMessage);
         }
       },
 
@@ -174,18 +291,37 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
        * Refreshes transaction history
        */
       refreshTransactions: async () => {
-        const { wallet } = get();
+        const { wallet, isLoadingTransactions } = get();
         if (!wallet || !wallet.address) {
+          return;
+        }
+        
+        // Prevent multiple simultaneous transaction updates
+        if (isLoadingTransactions) {
+          console.log('⏳ Transaction update already in progress, skipping...');
           return;
         }
         
         try {
           set({ isLoadingTransactions: true, error: null });
+          // Reduced delay for faster loading
+          await new Promise(resolve => setTimeout(resolve, 200));
           const transactions = await getTransactionHistory(wallet.address, 20);
           set({ transactions, isLoadingTransactions: false });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to fetch transactions';
-          set({ error: errorMessage, isLoadingTransactions: false });
+          // Don't show rate limit errors as critical errors
+          const isRateLimit = errorMessage.includes('rate limit') || 
+                             errorMessage.includes('Rate limit') ||
+                             errorMessage.includes('429');
+          
+          // Always reset loading state
+          set({ isLoadingTransactions: false });
+          
+          // Only set error if it's not a rate limit (rate limit is handled by returning cached/empty)
+          if (!isRateLimit) {
+            set({ error: errorMessage });
+          }
         }
       },
 
@@ -194,6 +330,57 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
        */
       clearError: () => {
         set({ error: null });
+      },
+
+      /**
+       * Loads NFT items for the wallet
+       */
+      loadNFTs: async () => {
+        const { wallet } = get();
+        if (!wallet || !wallet.address) {
+          return;
+        }
+        
+        try {
+          set({ isLoadingNFTs: true, nftError: null });
+          // Reduced delay for faster loading
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const nfts = await getNFTItems(wallet.address);
+          set({ nfts, isLoadingNFTs: false });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to load NFTs';
+          // Don't show rate limit errors to user, just keep existing NFTs
+          if (!errorMessage.includes('rate limit') && !errorMessage.includes('Rate limit')) {
+            set({ nftError: errorMessage, isLoadingNFTs: false });
+          } else {
+            set({ isLoadingNFTs: false });
+          }
+        }
+      },
+
+      /**
+       * Loads jetton token balances for the wallet
+       */
+      loadJettons: async () => {
+        const { wallet } = get();
+        if (!wallet || !wallet.address) {
+          return;
+        }
+        
+        try {
+          set({ isLoadingJettons: true });
+          // Reduced delay for faster loading
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const tokens = await getJettonBalances(wallet.address);
+          set({ jettonTokens: tokens, isLoadingJettons: false });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to load tokens';
+          // Don't show rate limit errors to user, just keep existing tokens
+          if (!errorMessage.includes('rate limit') && !errorMessage.includes('Rate limit')) {
+            console.error('Failed to load jetton tokens:', errorMessage);
+          }
+          set({ isLoadingJettons: false });
+        }
       },
 
       /**
@@ -207,6 +394,8 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
           encryptedSeed: null,
           balance: '0',
           transactions: [],
+          nfts: [],
+          nftError: null,
           error: null,
         });
       },

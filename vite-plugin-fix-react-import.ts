@@ -7,6 +7,13 @@ export function fixReactImport(): Plugin {
   return {
     name: 'fix-react-import',
     enforce: 'pre',
+    resolveId(id) {
+      // Never intercept React - let it resolve normally
+      if (id === 'react' || id === 'react-dom' || id.startsWith('react/') || id.startsWith('react-dom/')) {
+        return null;
+      }
+      return null;
+    },
     transform(code, id) {
       // Fix zustand imports in the ESM bundle
       if (id.includes('zustand') && (id.endsWith('.mjs') || id.includes('/esm/'))) {

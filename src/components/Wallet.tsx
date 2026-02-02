@@ -7,12 +7,64 @@ import { useEffect, useState } from 'react';
 import useWalletStore from '../app/store';
 import { nanoToTon } from '../blockchain/ton';
 
+// Token prices in USD (approximate, can be updated from API)
+const TOKEN_PRICES: { [key: string]: number } = {
+  'TON': 2.5, // Approximate TON price
+  'USDT': 1.0,
+  'USDC': 1.0,
+  'DAI': 1.0,
+  'WBTC': 45000, // Approximate BTC price
+};
+
+// Cache for token prices
+let priceCache: { [key: string]: { price: number; timestamp: number } } = {};
+const PRICE_CACHE_DURATION = 300000; // 5 minutes
+
+/**
+ * Gets token price in USD
+ */
+async function getTokenPrice(symbol: string): Promise<number> {
+  const cacheKey = symbol.toUpperCase();
+  
+  // Check cache
+  const cached = priceCache[cacheKey];
+  if (cached && Date.now() - cached.timestamp < PRICE_CACHE_DURATION) {
+    return cached.price;
+  }
+  
+  // Try to get price from API
+  try {
+    // Use CoinGecko API for TON
+    if (cacheKey === 'TON') {
+      const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
+      if (response.ok) {
+        const data = await response.json();
+        if (data['the-open-network']?.usd) {
+          const price = data['the-open-network'].usd;
+          priceCache[cacheKey] = { price, timestamp: Date.now() };
+          return price;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to fetch token price from API:', error);
+  }
+  
+  // Use default price if API fails
+  const defaultPrice = TOKEN_PRICES[cacheKey] || 0;
+  priceCache[cacheKey] = { price: defaultPrice, timestamp: Date.now() };
+  return defaultPrice;
+}
+
+
 interface WalletProps {
   onSendClick?: () => void;
   onReceiveClick?: () => void;
+  onHistoryClick?: () => void;
+  onNFTClick?: () => void;
 }
 
-export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
+export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, onNFTClick }: WalletProps) {
   const {
     wallet,
     balance,
@@ -21,21 +73,76 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
     error,
     updateBalance,
     clearError,
+    hasLoadedBalance,
+    jettonTokens,
+    isLoadingJettons,
+    loadJettons,
   } = useWalletStore();
 
   const [copied, setCopied] = useState(false);
+  const [tokenPrices, setTokenPrices] = useState<{ [key: string]: number }>({});
+  const [showAllTokens, setShowAllTokens] = useState(false);
 
   useEffect(() => {
     if (isUnlocked && wallet) {
-      // Initial balance fetch
-      updateBalance();
-      // Auto-refresh balance every 60 seconds (reduced frequency to avoid rate limits)
+      // Load all data in parallel for fastest response
+      const loadAllData = async () => {
+        // Load balance, jettons, and prices in parallel
+        await Promise.all([
+          updateBalance(),
+          loadJettons(),
+          (async () => {
+            const prices: { [key: string]: number } = {};
+            try {
+              prices['TON'] = await getTokenPrice('TON');
+            } catch (error) {
+              prices['TON'] = TOKEN_PRICES['TON'] || 0;
+            }
+            setTokenPrices(prices);
+          })(),
+        ]);
+      };
+      
+      loadAllData();
+      
+      // Auto-refresh balance every 120 seconds (2 minutes) to reduce rate limits
       const interval = setInterval(() => {
         updateBalance();
-      }, 60000); // Increased to 60 seconds to reduce API calls
+        loadJettons();
+        (async () => {
+          const prices: { [key: string]: number } = { ...tokenPrices };
+          try {
+            prices['TON'] = await getTokenPrice('TON');
+          } catch (error) {
+            prices['TON'] = TOKEN_PRICES['TON'] || 0;
+          }
+          setTokenPrices(prices);
+        })();
+      }, 120000); // 2 minutes to significantly reduce API calls
       return () => clearInterval(interval);
     }
-  }, [isUnlocked, wallet, updateBalance]);
+  }, [isUnlocked, wallet?.address]); // Use wallet.address instead of wallet and updateBalance
+
+  // Update prices when jetton tokens change
+  useEffect(() => {
+    if (jettonTokens.length > 0) {
+      const loadPrices = async () => {
+        const prices: { [key: string]: number } = { ...tokenPrices };
+        // Load prices for all jetton tokens
+        for (const token of jettonTokens) {
+          if (!prices[token.symbol]) {
+            try {
+              prices[token.symbol] = await getTokenPrice(token.symbol);
+            } catch (error) {
+              prices[token.symbol] = TOKEN_PRICES[token.symbol.toUpperCase()] || 0;
+            }
+          }
+        }
+        setTokenPrices(prices);
+      };
+      loadPrices();
+    }
+  }, [jettonTokens.length]);
 
   useEffect(() => {
     if (error) {
@@ -75,6 +182,23 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
 
   const balanceTon = nanoToTon(balance);
 
+  // Create TON token object to display in tokens list
+  const tonToken = {
+    address: wallet.address,
+    symbol: 'TON',
+    name: 'TON',
+    decimals: 9,
+    balance: balanceTon,
+    image: 'https://cryptologos.cc/logos/toncoin-ton-logo.svg?v=040',
+    verified: true,
+  };
+
+  // Combine TON with other jetton tokens (TON always first)
+  const allTokens = [tonToken, ...jettonTokens];
+  
+  // Always show tokens section if we have TON balance or other tokens
+  const hasTokens = parseFloat(balanceTon) > 0 || jettonTokens.length > 0;
+
   return (
     <div className="wallet-container">
       {error && (
@@ -88,10 +212,18 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
         <h2>TON Wallet</h2>
       </div>
 
+      <div className="wallet-address">
+        <div className="address-label">Address</div>
+        <div className="address-value" onClick={handleCopyAddress}>
+          <code>{formatAddress(wallet.address)}</code>
+          <span className="copy-indicator">{copied ? '✓ Copied' : '📋'}</span>
+        </div>
+      </div>
+
       <div className="wallet-balance">
         <div className="balance-label">Balance</div>
         <div className="balance-value">
-          {isLoadingBalance ? (
+          {isLoadingBalance && !hasLoadedBalance ? (
             <span className="loading">Loading...</span>
           ) : (
             <>
@@ -99,14 +231,6 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
               <span className="currency">TON</span>
             </>
           )}
-        </div>
-      </div>
-
-      <div className="wallet-address">
-        <div className="address-label">Address</div>
-        <div className="address-value" onClick={handleCopyAddress}>
-          <code>{formatAddress(wallet.address)}</code>
-          <span className="copy-indicator">{copied ? '✓ Copied' : '📋'}</span>
         </div>
       </div>
 
@@ -128,9 +252,128 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
         </button>
       </div>
 
+      {/* Tokens Section */}
+      {(hasTokens || isLoadingJettons) && (
+        <div className="tokens-section">
+          <div className="tokens-header">
+            <h3>Tokens</h3>
+          </div>
+          {isLoadingJettons && jettonTokens.length === 0 ? (
+            <div className="tokens-loading">
+              <div className="loading-wrapper">
+                <div className="spinner-ring"></div>
+                <div className="spinner-ring"></div>
+                <div className="spinner-ring"></div>
+                <div className="spinner-ring"></div>
+              </div>
+              <p className="loading-text">Loading tokens...</p>
+            </div>
+          ) : allTokens.length > 0 ? (
+            <>
+              <div className="tokens-list">
+                {(showAllTokens ? allTokens : allTokens.slice(0, 3)).map((token, index) => {
+                  // Use alternative icon for TON if main one is not available
+                  const iconUrl = token.symbol === 'TON' && !token.image 
+                    ? 'https://raw.githubusercontent.com/ton-blockchain/ton-assets/main/icons/ton/ton_symbol.svg'
+                    : token.image;
+                  
+                  return (
+                    <div key={token.address || index} className="token-item">
+                      <div className="token-icon">
+                        {iconUrl ? (
+                          <img 
+                            src={iconUrl} 
+                            alt={token.symbol}
+                            onError={(e) => {
+                              const img = e.target as HTMLImageElement;
+                              img.style.display = 'none';
+                              const fallback = img.nextElementSibling as HTMLElement;
+                              if (fallback) fallback.classList.remove('hidden');
+                            }}
+                            onLoad={(e) => {
+                              // Hide fallback when image loads successfully
+                              const img = e.target as HTMLImageElement;
+                              if (img) {
+                                const fallback = img.nextElementSibling as HTMLElement;
+                                if (fallback) fallback.classList.add('hidden');
+                              }
+                            }}
+                          />
+                        ) : null}
+                        <div className={`token-icon-fallback ${iconUrl ? 'hidden' : ''}`}>
+                          {token.symbol === 'TON' ? '💎' : token.symbol[0]?.toUpperCase() || '?'}
+                        </div>
+                      </div>
+                      <div className="token-info">
+                        <div className="token-name-row">
+                          <span className="token-name">{token.name}</span>
+                          {token.verified && <span className="token-verified">✓</span>}
+                        </div>
+                        <span className="token-symbol">{token.symbol}</span>
+                      </div>
+                      <div className="token-balance">
+                        <span className="balance-amount">{token.balance}</span>
+                        <span className="balance-usd">
+                          {(() => {
+                            const balanceNum = parseFloat(token.balance) || 0;
+                            const price = tokenPrices[token.symbol] || TOKEN_PRICES[token.symbol.toUpperCase()] || 0;
+                            const usdValue = balanceNum * price;
+                            if (usdValue < 0.01) return '<$0.01';
+                            if (usdValue < 1) return `$${usdValue.toFixed(2)}`;
+                            if (usdValue < 1000) return `$${usdValue.toFixed(2)}`;
+                            return `$${(usdValue / 1000).toFixed(2)}K`;
+                          })()}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {allTokens.length > 3 && (
+                <button 
+                  className="show-more-tokens-button"
+                  onClick={() => setShowAllTokens(!showAllTokens)}
+                >
+                  {showAllTokens ? 'Show Less' : `Show More (${allTokens.length - 3})`}
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="tokens-loading">
+              <p>Loading tokens...</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Bottom Navigation */}
+      <div className="bottom-navigation">
+        <button
+          className="nav-button"
+          onClick={onHistoryClick}
+        >
+          <div className="nav-icon">📋</div>
+          <span className="nav-label">History</span>
+        </button>
+        <button
+          className="nav-button nav-button-active"
+        >
+          <div className="nav-icon">💎</div>
+          <span className="nav-label">Wallet</span>
+        </button>
+        <button
+          className="nav-button"
+          onClick={onNFTClick}
+        >
+          <div className="nav-icon">🖼️</div>
+          <span className="nav-label">NFT</span>
+        </button>
+      </div>
+
       <style>{`
         .wallet-container {
           padding: 16px;
+          padding-bottom: 120px;
           max-width: 100%;
           margin: 0 auto;
         }
@@ -175,11 +418,24 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
         }
 
         .wallet-balance {
-          background: linear-gradient(135deg, #0088cc 0%, #0066aa 100%);
-          border-radius: 16px;
-          padding: 24px;
-          margin-bottom: 20px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border-radius: 20px;
+          padding: 28px;
+          margin-bottom: 24px;
           color: white;
+          box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+          animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
 
         .balance-label {
@@ -210,16 +466,24 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
         }
 
         .wallet-address {
-          background: #f5f5f5;
+          background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
           border-radius: 12px;
-          padding: 16px;
-          margin-bottom: 20px;
+          padding: 10px 14px;
+          margin-bottom: 16px;
+          border: 2px solid rgba(102, 126, 234, 0.1);
+          transition: all 0.3s;
+        }
+
+        .wallet-address:hover {
+          border-color: rgba(102, 126, 234, 0.3);
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
         }
 
         .address-label {
-          font-size: 12px;
+          font-size: 11px;
           color: #666;
-          margin-bottom: 8px;
+          margin-bottom: 6px;
         }
 
         .address-value {
@@ -231,14 +495,14 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
 
         .address-value code {
           font-family: 'Courier New', monospace;
-          font-size: 14px;
+          font-size: 12px;
           color: #333;
           word-break: break-all;
         }
 
         .copy-indicator {
-          font-size: 16px;
-          color: #0088cc;
+          font-size: 14px;
+          color: #667eea;
           margin-left: 8px;
           flex-shrink: 0;
         }
@@ -247,6 +511,305 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .tokens-section {
+          margin-bottom: 24px;
+          background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+          border-radius: 20px;
+          padding: 20px;
+          border: 2px solid rgba(102, 126, 234, 0.1);
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+        }
+
+        .tokens-header {
+          margin-bottom: 16px;
+        }
+
+        .tokens-header h3 {
+          margin: 0;
+          font-size: 18px;
+          font-weight: 600;
+          color: #333;
+        }
+
+        .tokens-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .token-item {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          padding: 16px 18px;
+          background: rgba(255, 255, 255, 0.7);
+          backdrop-filter: blur(10px);
+          border-radius: 16px;
+          border: 2px solid rgba(102, 126, 234, 0.15);
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          cursor: pointer;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .token-item:hover {
+          background: rgba(255, 255, 255, 0.9);
+          border-color: rgba(102, 126, 234, 0.4);
+          transform: translateY(-3px) scale(1.01);
+          box-shadow: 0 6px 20px rgba(102, 126, 234, 0.25);
+        }
+
+        .token-icon {
+          width: 48px;
+          height: 48px;
+          border-radius: 50%;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          overflow: hidden;
+          box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+        }
+
+        .token-icon img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .token-icon-fallback {
+          color: white;
+          font-weight: 600;
+          font-size: 16px;
+        }
+
+        .token-icon-fallback.hidden {
+          display: none;
+        }
+
+        .token-info {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .token-name-row {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .token-name {
+          font-size: 15px;
+          font-weight: 600;
+          color: #333;
+        }
+
+        .token-verified {
+          color: #667eea;
+          font-size: 14px;
+        }
+
+        .token-symbol {
+          font-size: 13px;
+          color: #666;
+        }
+
+        .token-balance {
+          text-align: right;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 2px;
+        }
+
+        .balance-amount {
+          font-size: 16px;
+          font-weight: 600;
+          color: #333;
+        }
+
+        .balance-usd {
+          font-size: 12px;
+          color: #666;
+          font-weight: 400;
+        }
+
+        .tokens-loading {
+          padding: 40px 20px;
+          text-align: center;
+          color: #666;
+          font-size: 14px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .tokens-loading .loading-wrapper {
+          position: relative;
+          width: 60px;
+          height: 60px;
+          margin-bottom: 16px;
+        }
+
+        .tokens-loading .spinner-ring {
+          position: absolute;
+          width: 100%;
+          height: 100%;
+          border: 3px solid transparent;
+          border-top-color: #667eea;
+          border-radius: 50%;
+          animation: spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+        }
+
+        .tokens-loading .spinner-ring:nth-child(1) {
+          animation-delay: -0.45s;
+          border-top-color: #667eea;
+        }
+
+        .tokens-loading .spinner-ring:nth-child(2) {
+          animation-delay: -0.3s;
+          border-top-color: #764ba2;
+          width: 50px;
+          height: 50px;
+          top: 5px;
+          left: 5px;
+        }
+
+        .tokens-loading .spinner-ring:nth-child(3) {
+          animation-delay: -0.15s;
+          border-top-color: #667eea;
+          width: 40px;
+          height: 40px;
+          top: 10px;
+          left: 10px;
+        }
+
+        .tokens-loading .spinner-ring:nth-child(4) {
+          border-top-color: #764ba2;
+          width: 30px;
+          height: 30px;
+          top: 15px;
+          left: 15px;
+        }
+
+        .tokens-loading .loading-text {
+          font-size: 14px;
+          font-weight: 500;
+          color: #667eea;
+          animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.6; }
+        }
+
+        .show-more-tokens-button {
+          width: 100%;
+          padding: 12px;
+          margin-top: 12px;
+          background: rgba(255, 255, 255, 0.5);
+          border: 2px solid rgba(102, 126, 234, 0.2);
+          border-radius: 12px;
+          color: #667eea;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s;
+          backdrop-filter: blur(10px);
+        }
+
+        .show-more-tokens-button:hover {
+          background: rgba(255, 255, 255, 0.7);
+          border-color: rgba(102, 126, 234, 0.4);
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .show-more-tokens-button:active {
+          transform: translateY(0);
+        }
+
+        .bottom-navigation {
+          position: fixed;
+          bottom: 30px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: calc(100% - 32px);
+          max-width: 400px;
+          display: flex;
+          justify-content: center;
+          align-items: flex-end;
+          gap: 20px;
+          z-index: 100;
+          padding: 0 16px;
+        }
+
+        .nav-button {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          background: #2a2a2a;
+          border: none;
+          border-radius: 24px;
+          cursor: pointer;
+          padding: 12px 20px;
+          transition: all 0.3s;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .nav-button .nav-icon {
+          font-size: 24px;
+          width: 40px;
+          height: 40px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.1);
+          transition: all 0.3s;
+        }
+
+        .nav-button .nav-label {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.6);
+          transition: all 0.3s;
+        }
+
+        .nav-button-active {
+          transform: scale(1.15);
+          background: #667eea;
+          box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .nav-button-active .nav-icon {
+          background: rgba(255, 255, 255, 0.2);
+          width: 48px;
+          height: 48px;
+          font-size: 28px;
+        }
+
+        .nav-button-active .nav-label {
+          color: white;
+          font-weight: 600;
+          font-size: 13px;
+        }
+
+        .nav-button:active:not(.nav-button-active) {
+          transform: scale(0.95);
         }
 
         .action-button {
@@ -254,20 +817,21 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
           flex-direction: column;
           align-items: center;
           gap: 8px;
-          padding: 20px;
+          padding: 22px;
           border: none;
-          border-radius: 12px;
-          background: #0088cc;
+          border-radius: 16px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
           font-size: 16px;
           font-weight: 600;
           cursor: pointer;
-          transition: all 0.2s;
+          transition: all 0.3s;
+          box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
 
         .action-button:hover:not(:disabled) {
-          background: #0066aa;
-          transform: translateY(-2px);
+          transform: translateY(-3px);
+          box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
         }
 
         .action-button:active:not(:disabled) {
@@ -280,11 +844,12 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
         }
 
         .receive-button {
-          background: #00aa44;
+          background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
         }
 
         .receive-button:hover:not(:disabled) {
-          background: #008833;
+          transform: translateY(-3px);
+          box-shadow: 0 6px 20px rgba(17, 153, 142, 0.5);
         }
 
         .button-icon {
@@ -302,6 +867,51 @@ export default function Wallet({ onSendClick, onReceiveClick }: WalletProps) {
 
           .address-label {
             color: #999;
+          }
+
+          .tokens-section {
+            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a2e 100%);
+            border-color: rgba(102, 126, 234, 0.2);
+          }
+
+          .tokens-header h3 {
+            color: #e0e0e0;
+          }
+
+          .token-item {
+            background: rgba(42, 42, 42, 0.7);
+            border-color: rgba(102, 126, 234, 0.2);
+          }
+
+          .token-item:hover {
+            background: rgba(42, 42, 42, 0.9);
+          }
+
+          .token-name {
+            color: #e0e0e0;
+          }
+
+          .token-symbol {
+            color: #999;
+          }
+
+          .balance-amount {
+            color: #e0e0e0;
+          }
+
+          .balance-usd {
+            color: #999;
+          }
+
+          .show-more-tokens-button {
+            background: rgba(42, 42, 42, 0.5);
+            border-color: rgba(102, 126, 234, 0.3);
+            color: #667eea;
+          }
+
+          .show-more-tokens-button:hover {
+            background: rgba(42, 42, 42, 0.7);
+            border-color: rgba(102, 126, 234, 0.5);
           }
         }
       `}</style>

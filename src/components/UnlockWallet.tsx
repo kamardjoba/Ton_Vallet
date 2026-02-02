@@ -37,8 +37,8 @@ export default function UnlockWallet({ onUnlock }: UnlockWalletProps) {
   return (
     <div className="unlock-wallet">
       <div className="unlock-container">
-        <h2>Разблокировать кошелек</h2>
-        <p className="subtitle">Введите пароль для доступа к кошельку</p>
+        <h2>Unlock Wallet</h2>
+        <p className="subtitle">Enter your password to access your wallet</p>
 
         <form onSubmit={handleSubmit} className="unlock-form">
           <div className="input-group">
@@ -46,7 +46,7 @@ export default function UnlockWallet({ onUnlock }: UnlockWalletProps) {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Пароль"
+              placeholder="Password"
               className="password-input"
               disabled={isLoading}
               autoFocus
@@ -64,7 +64,7 @@ export default function UnlockWallet({ onUnlock }: UnlockWalletProps) {
             className="unlock-button"
             disabled={!password || isLoading}
           >
-            {isLoading ? 'Разблокировка...' : 'Разблокировать'}
+            {isLoading ? 'Unlocking...' : 'Unlock'}
           </button>
         </form>
       </div>
@@ -76,23 +76,39 @@ export default function UnlockWallet({ onUnlock }: UnlockWalletProps) {
           justify-content: center;
           min-height: 100vh;
           padding: 20px;
-          background: #f5f5f5;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
 
         .unlock-container {
           width: 100%;
           max-width: 400px;
           background: white;
-          border-radius: 16px;
-          padding: 32px;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          border-radius: 20px;
+          padding: 40px;
+          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+          animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
 
         .unlock-container h2 {
           margin: 0 0 8px 0;
-          font-size: 24px;
-          font-weight: 600;
-          color: #333;
+          font-size: 28px;
+          font-weight: 700;
+          color: #1a1a1a;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
         }
 
         .subtitle {
@@ -114,16 +130,19 @@ export default function UnlockWallet({ onUnlock }: UnlockWalletProps) {
 
         .password-input {
           width: 100%;
-          padding: 12px 16px;
+          padding: 14px 18px;
           border: 2px solid #e0e0e0;
-          border-radius: 8px;
+          border-radius: 12px;
           font-size: 16px;
-          transition: border-color 0.2s;
+          transition: all 0.3s;
+          background: #fafafa;
         }
 
         .password-input:focus {
           outline: none;
-          border-color: #0088cc;
+          border-color: #667eea;
+          background: white;
+          box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
         }
 
         .password-input:disabled {
@@ -141,19 +160,25 @@ export default function UnlockWallet({ onUnlock }: UnlockWalletProps) {
 
         .unlock-button {
           width: 100%;
-          padding: 14px;
-          background: #0088cc;
+          padding: 16px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
           border: none;
-          border-radius: 8px;
+          border-radius: 12px;
           font-size: 16px;
           font-weight: 600;
           cursor: pointer;
-          transition: background 0.2s;
+          transition: all 0.3s;
+          box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
 
         .unlock-button:hover:not(:disabled) {
-          background: #0066aa;
+          transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .unlock-button:active:not(:disabled) {
+          transform: translateY(0);
         }
 
         .unlock-button:disabled {
@@ -163,11 +188,11 @@ export default function UnlockWallet({ onUnlock }: UnlockWalletProps) {
 
         @media (prefers-color-scheme: dark) {
           .unlock-wallet {
-            background: #1a1a1a;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
           }
 
           .unlock-container {
-            background: #2a2a2a;
+            background: #2a2a3e;
           }
 
           .unlock-container h2 {

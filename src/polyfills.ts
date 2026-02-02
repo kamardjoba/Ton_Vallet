@@ -53,24 +53,79 @@ const processPolyfill = {
   browser: true,
 };
 
+// Create EventEmitter polyfill for Node.js compatibility
+class EventEmitterPolyfill {
+  private _events: Record<string, Function[]> = {};
+
+  on(event: string, listener: Function): this {
+    if (!this._events[event]) {
+      this._events[event] = [];
+    }
+    this._events[event].push(listener);
+    return this;
+  }
+
+  off(event: string, listener: Function): this {
+    if (!this._events[event]) return this;
+    this._events[event] = this._events[event].filter(l => l !== listener);
+    return this;
+  }
+
+  emit(event: string, ...args: any[]): boolean {
+    if (!this._events[event]) return false;
+    this._events[event].forEach(listener => listener(...args));
+    return true;
+  }
+
+  once(event: string, listener: Function): this {
+    const onceWrapper = (...args: any[]) => {
+      listener(...args);
+      this.off(event, onceWrapper);
+    };
+    return this.on(event, onceWrapper);
+  }
+
+  addListener(event: string, listener: Function): this {
+    return this.on(event, listener);
+  }
+
+  removeListener(event: string, listener: Function): this {
+    return this.off(event, listener);
+  }
+
+  removeAllListeners(event?: string): this {
+    if (event) {
+      delete this._events[event];
+    } else {
+      this._events = {};
+    }
+    return this;
+  }
+}
+
+const EventEmitter = EventEmitterPolyfill;
+
 // Extend Window interface
 declare global {
   interface Window {
     Buffer: any;
     process: any;
+    EventEmitter: any;
   }
 }
 
-// Make Buffer and process available globally
+// Make Buffer, process, and EventEmitter available globally
 if (typeof window !== 'undefined') {
   (window as any).Buffer = Buffer;
   (window as any).process = processPolyfill;
+  (window as any).EventEmitter = EventEmitter;
 }
 
 // Also set global for Node.js-like environments
 if (typeof globalThis !== 'undefined') {
   (globalThis as any).Buffer = Buffer;
   (globalThis as any).process = processPolyfill;
+  (globalThis as any).EventEmitter = EventEmitter;
 }
 
 export { Buffer, processPolyfill as process };

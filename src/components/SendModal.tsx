@@ -5,6 +5,10 @@
 
 import { useState } from 'react';
 import useWalletStore from '../app/store';
+import { validateTONAddress, validateTONAmount, validateComment } from '../utils/validation';
+import { HapticFeedback } from '../utils/telegram';
+import { formatError } from '../utils/errors';
+import LoadingSpinner from './LoadingSpinner';
 
 interface SendModalProps {
   isOpen: boolean;
@@ -24,21 +28,42 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
     e.preventDefault();
     e.stopPropagation();
 
-    if (!toAddress || !amount) {
+    // Validate inputs
+    const addressValidation = validateTONAddress(toAddress);
+    if (!addressValidation.valid) {
+      HapticFeedback.notification('error');
+      clearError();
       return;
     }
 
+    const amountValidation = validateTONAmount(amount);
+    if (!amountValidation.valid) {
+      HapticFeedback.notification('error');
+      clearError();
+      return;
+    }
+
+    const commentValidation = validateComment(comment);
+    if (!commentValidation.valid) {
+      HapticFeedback.notification('error');
+      clearError();
+      return;
+    }
+
+    HapticFeedback.impact('light');
     setIsLoading(true);
     clearError();
 
     try {
       await sendTon(toAddress, amount, comment || undefined);
+      HapticFeedback.notification('success');
       // Reset form
       setToAddress('');
       setAmount('');
       setComment('');
       onClose();
     } catch (err) {
+      HapticFeedback.notification('error');
       console.error('Failed to send TON:', err);
     } finally {
       setIsLoading(false);
@@ -59,7 +84,7 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
     <div className="modal-overlay" onClick={handleClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Отправить TON</h2>
+          <h2>Send TON</h2>
           <button className="modal-close" onClick={handleClose} disabled={isLoading}>
             ×
           </button>
@@ -67,7 +92,7 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
 
         <form onSubmit={handleSubmit} className="send-form">
           <div className="input-group">
-            <label>Адрес получателя</label>
+            <label>Recipient Address</label>
             <input
               type="text"
               value={toAddress}
@@ -80,7 +105,7 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
           </div>
 
           <div className="input-group">
-            <label>Сумма (TON)</label>
+            <label>Amount (TON)</label>
             <input
               type="number"
               step="0.000000001"
@@ -95,12 +120,12 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
           </div>
 
           <div className="input-group">
-            <label>Комментарий (опционально)</label>
+            <label>Comment (optional)</label>
             <input
               type="text"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder="Комментарий к транзакции"
+              placeholder="Transaction comment"
               className="comment-input"
               disabled={isLoading}
               maxLength={100}
@@ -108,8 +133,14 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
           </div>
 
           {error && (
-            <div className="error-message">
-              {error}
+            <div className="error-message animate-slide-up">
+              {formatError(error)}
+            </div>
+          )}
+
+          {isLoading && (
+            <div className="loading-overlay">
+              <LoadingSpinner size="small" text="Sending transaction..." />
             </div>
           )}
 
@@ -120,14 +151,14 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
               className="cancel-button"
               disabled={isLoading}
             >
-              Отмена
+              Cancel
             </button>
             <button
               type="submit"
               className="send-button"
               disabled={!toAddress || !amount || isLoading}
             >
-              {isLoading ? 'Отправка...' : 'Отправить'}
+              {isLoading ? 'Sending...' : 'Send'}
             </button>
           </div>
         </form>
@@ -150,12 +181,24 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
 
         .modal-content {
           background: white;
-          border-radius: 16px;
+          border-radius: 20px;
           width: 100%;
           max-width: 500px;
           max-height: 90vh;
           overflow-y: auto;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+          animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
 
         .modal-header {
@@ -277,12 +320,18 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
         }
 
         .send-button {
-          background: #0088cc;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
+          box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
 
         .send-button:hover:not(:disabled) {
-          background: #0066aa;
+          transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .send-button:active:not(:disabled) {
+          transform: translateY(0);
         }
 
         .send-button:disabled,

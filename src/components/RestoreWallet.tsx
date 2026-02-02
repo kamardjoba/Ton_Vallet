@@ -55,8 +55,8 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
   return (
     <div className="restore-wallet">
       <div className="restore-container">
-        <h2>Восстановить кошелек</h2>
-        <p className="subtitle">Введите вашу seed phrase (24 слова)</p>
+        <h2>Restore Wallet</h2>
+        <p className="subtitle">Enter your seed phrase (24 words)</p>
 
         <form onSubmit={handleSubmit} className="restore-form" noValidate>
           <div className="input-group">
@@ -71,17 +71,17 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
               required
             />
             <div className="word-count">
-              Слов: {wordCount} / 24
+              Words: {wordCount} / 24
             </div>
           </div>
 
           <div className="input-group">
-            <label>Новый пароль</label>
+            <label>New Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Пароль (минимум 8 символов)"
+              placeholder="Password (minimum 8 characters)"
               className="password-input"
               disabled={isLoading}
               minLength={8}
@@ -90,12 +90,12 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
           </div>
 
           <div className="input-group">
-            <label>Подтвердите пароль</label>
+            <label>Confirm Password</label>
             <input
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Подтвердите пароль"
+              placeholder="Confirm password"
               className="password-input"
               disabled={isLoading}
               minLength={8}
@@ -105,13 +105,13 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
 
           {password && confirmPassword && password !== confirmPassword && (
             <div className="error-message">
-              Пароли не совпадают
+              Passwords do not match
             </div>
           )}
 
           {wordCount > 0 && wordCount !== 24 && (
             <div className="error-message">
-              Seed phrase должен содержать ровно 24 слова
+              Seed phrase must contain exactly 24 words
             </div>
           )}
 
@@ -128,7 +128,7 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
               className="back-button"
               disabled={isLoading}
             >
-              Назад
+              Back
             </button>
             <button
               type="submit"
@@ -143,7 +143,7 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
                 isLoading
               }
             >
-              {isLoading ? 'Восстановление...' : 'Восстановить'}
+              {isLoading ? 'Restoring...' : 'Restore'}
             </button>
           </div>
         </form>
@@ -156,23 +156,39 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
           justify-content: center;
           min-height: 100vh;
           padding: 20px;
-          background: #f5f5f5;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
 
         .restore-container {
           width: 100%;
           max-width: 500px;
           background: white;
-          border-radius: 16px;
-          padding: 32px;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          border-radius: 20px;
+          padding: 40px;
+          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+          animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
 
         .restore-container h2 {
           margin: 0 0 8px 0;
-          font-size: 24px;
-          font-weight: 600;
-          color: #333;
+          font-size: 28px;
+          font-weight: 700;
+          color: #1a1a1a;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
         }
 
         .subtitle {
@@ -283,12 +299,18 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
         }
 
         .restore-button {
-          background: #0088cc;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
+          box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
 
         .restore-button:hover:not(:disabled) {
-          background: #0066aa;
+          transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .restore-button:active:not(:disabled) {
+          transform: translateY(0);
         }
 
         .back-button:disabled,
@@ -299,11 +321,11 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
 
         @media (prefers-color-scheme: dark) {
           .restore-wallet {
-            background: #1a1a1a;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
           }
 
           .restore-container {
-            background: #2a2a2a;
+            background: #2a2a3e;
           }
 
           .restore-container h2 {

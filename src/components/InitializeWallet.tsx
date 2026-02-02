@@ -86,8 +86,8 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
     return (
       <div className="initialize-wallet">
         <div className="init-container">
-          <h2>Создать кошелек</h2>
-          <p className="subtitle">Создайте пароль для защиты вашего кошелька</p>
+          <h2>Create Wallet</h2>
+          <p className="subtitle">Create a password to protect your wallet</p>
 
           <form onSubmit={handlePasswordSubmit} className="init-form" noValidate>
             <div className="input-group">
@@ -95,7 +95,7 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Пароль (минимум 8 символов)"
+                placeholder="Password (minimum 8 characters)"
                 className="password-input"
                 disabled={isLoading}
                 minLength={8}
@@ -108,7 +108,7 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Подтвердите пароль"
+                placeholder="Confirm password"
                 className="password-input"
                 disabled={isLoading}
                 minLength={8}
@@ -117,7 +117,7 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
 
             {password && confirmPassword && password !== confirmPassword && (
               <div className="error-message">
-                Пароли не совпадают
+                Passwords do not match
               </div>
             )}
 
@@ -132,7 +132,7 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
               className="init-button"
               disabled={!password || !confirmPassword || password !== confirmPassword || password.length < 8 || isLoading}
             >
-              Продолжить
+              Continue
             </button>
           </form>
         </div>
@@ -144,35 +144,52 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
             justify-content: center;
             min-height: 100vh;
             padding: 20px;
-            background: #f5f5f5;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           }
 
           .init-container {
             width: 100%;
             max-width: 400px;
             background: white;
-            border-radius: 16px;
-            padding: 32px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            animation: slideUp 0.3s ease-out;
+          }
+
+          @keyframes slideUp {
+            from {
+              opacity: 0;
+              transform: translateY(20px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
           }
 
           .init-container h2 {
             margin: 0 0 8px 0;
-            font-size: 24px;
-            font-weight: 600;
-            color: #333;
+            font-size: 28px;
+            font-weight: 700;
+            color: #1a1a1a;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
           }
 
           .subtitle {
-            margin: 0 0 24px 0;
+            margin: 0 0 32px 0;
             color: #666;
-            font-size: 14px;
+            font-size: 15px;
+            line-height: 1.5;
           }
 
           .init-form {
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 20px;
           }
 
           .input-group {
@@ -182,55 +199,66 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
 
           .password-input {
             width: 100%;
-            padding: 12px 16px;
+            padding: 14px 18px;
             border: 2px solid #e0e0e0;
-            border-radius: 8px;
+            border-radius: 12px;
             font-size: 16px;
-            transition: border-color 0.2s;
+            transition: all 0.3s;
+            background: #fafafa;
           }
 
           .password-input:focus {
             outline: none;
-            border-color: #0088cc;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
           }
 
           .error-message {
-            padding: 12px;
-            background: #ffebee;
+            padding: 12px 16px;
+            background: #fee;
             color: #c62828;
-            border-radius: 8px;
+            border-radius: 10px;
             font-size: 14px;
+            border-left: 4px solid #c62828;
           }
 
           .init-button {
             width: 100%;
-            padding: 14px;
-            background: #0088cc;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 12px;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
           }
 
           .init-button:hover:not(:disabled) {
-            background: #0066aa;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+          }
+
+          .init-button:active:not(:disabled) {
+            transform: translateY(0);
           }
 
           .init-button:disabled {
             background: #ccc;
             cursor: not-allowed;
+            box-shadow: none;
           }
 
           @media (prefers-color-scheme: dark) {
             .initialize-wallet {
-              background: #1a1a1a;
+              background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             }
 
             .init-container {
-              background: #2a2a2a;
+              background: #2a2a3e;
             }
 
             .init-container h2 {
@@ -238,13 +266,17 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
             }
 
             .subtitle {
-              color: #999;
+              color: #aaa;
             }
 
             .password-input {
               background: #333;
               border-color: #444;
               color: #e0e0e0;
+            }
+
+            .password-input:focus {
+              background: #3a3a4e;
             }
           }
         `}</style>
@@ -257,7 +289,7 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
       <div className="initialize-wallet">
         <div className="init-container">
           <h2>Seed Phrase</h2>
-          <p className="subtitle">Сохраните эти 24 слова в безопасном месте. Они нужны для восстановления кошелька.</p>
+          <p className="subtitle">Save these 24 words in a safe place. You'll need them to restore your wallet.</p>
 
           <div className="seed-phrase-grid">
             {seedPhrase.map((word, index) => (
@@ -274,7 +306,7 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
               onClick={handleCopySeedPhrase}
               className="copy-seed-button"
             >
-              {copied ? '✓ Скопировано' : '📋 Копировать seed phrase'}
+              {copied ? '✓ Copied' : '📋 Copy Seed Phrase'}
             </button>
           </div>
 
@@ -283,7 +315,7 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
             onClick={handleSeedConfirm}
             className="init-button"
           >
-            Я сохранил seed phrase
+            I've Saved My Seed Phrase
           </button>
         </div>
 
@@ -291,31 +323,41 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
           .seed-phrase-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
+            gap: 10px;
             margin-bottom: 24px;
-            padding: 16px;
-            background: #f9f9f9;
-            border-radius: 8px;
+            padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 12px;
+            border: 2px solid #e0e0e0;
           }
 
           .seed-word {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 8px;
+            gap: 10px;
+            padding: 10px 12px;
             background: white;
-            border-radius: 4px;
+            border-radius: 8px;
+            transition: all 0.2s;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+          }
+
+          .seed-word:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
           }
 
           .seed-number {
-            color: #666;
-            font-size: 12px;
-            min-width: 20px;
+            color: #667eea;
+            font-size: 13px;
+            font-weight: 600;
+            min-width: 24px;
           }
 
           .seed-text {
             font-weight: 500;
-            color: #333;
+            color: #1a1a1a;
+            font-size: 14px;
           }
 
           .seed-actions {
@@ -324,29 +366,32 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
 
           .copy-seed-button {
             width: 100%;
-            padding: 12px;
-            background: #f0f0f0;
-            color: #333;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 500;
+            padding: 14px;
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.3s;
           }
 
           .copy-seed-button:hover {
-            background: #e0e0e0;
-            border-color: #0088cc;
+            background: #667eea;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
           }
 
           @media (prefers-color-scheme: dark) {
             .seed-phrase-grid {
-              background: #333;
+              background: linear-gradient(135deg, #2a2a3e 0%, #1a1a2e 100%);
+              border-color: #444;
             }
 
             .seed-word {
-              background: #2a2a2a;
+              background: #333;
             }
 
             .seed-text {
@@ -355,13 +400,13 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
 
             .copy-seed-button {
               background: #333;
-              border-color: #444;
-              color: #e0e0e0;
+              border-color: #667eea;
+              color: #667eea;
             }
 
             .copy-seed-button:hover {
-              background: #3a3a3a;
-              border-color: #0088cc;
+              background: #667eea;
+              color: white;
             }
           }
         `}</style>
@@ -372,8 +417,8 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
   return (
     <div className="initialize-wallet">
       <div className="init-container">
-        <h2>Подтверждение</h2>
-        <p className="subtitle">Подтвердите, что вы сохранили seed phrase</p>
+        <h2>Confirmation</h2>
+        <p className="subtitle">Confirm that you've saved your seed phrase</p>
 
         <button
           type="button"
@@ -381,10 +426,9 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
           className="init-button"
           disabled={isLoading}
         >
-          {isLoading ? 'Создание кошелька...' : 'Создать кошелек'}
+          {isLoading ? 'Creating Wallet...' : 'Create Wallet'}
         </button>
       </div>
     </div>
   );
 }
-
