@@ -222,20 +222,26 @@ export default defineConfig({
   },
   build: {
     commonjsOptions: {
-      include: [/zustand/, /tonweb/, /@ton/, /node_modules\/react/, /node_modules\/react-dom/],
+      // Transform ALL CommonJS modules, including nested ones
+      include: [/node_modules/],
       transformMixedEsModules: true,
       // Ensure React CommonJS is properly transformed
       requireReturnsDefault: 'auto',
       // Enable named exports detection for React
       esmExternals: false,
+      // Strict mode for better CommonJS handling
+      strictRequires: true,
     },
     rollupOptions: {
       // External React to ensure proper resolution
       external: [],
       output: {
         manualChunks: undefined,
-        // Ensure proper format
-        format: 'es',
+        // Use IIFE format for better browser compatibility and CommonJS handling
+        format: 'iife',
+        name: 'WalletApp',
+        // Globals for external dependencies (if any)
+        globals: {},
       },
       plugins: [
         {
