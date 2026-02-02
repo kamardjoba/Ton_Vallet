@@ -89,41 +89,42 @@ export default function AuthModal({
     
     try {
       HapticFeedback.impact('light');
+      console.log('Starting biometric authentication attempt...');
       
-      // Set timeout for biometric auth (5 seconds)
-      const authPromise = (async () => {
-        // First try with stored credential
-        let authenticated = false;
-        if (walletAddress) {
-          try {
-            authenticated = await Promise.race([
-              authenticateWithStoredBiometric(walletAddress),
-              new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3000))
-            ]);
-          } catch (e) {
-            console.log('Stored biometric failed, trying general:', e);
+      // First try with stored credential (if exists)
+      let authenticated = false;
+      if (walletAddress) {
+        try {
+          console.log('Trying stored biometric credential...');
+          authenticated = await Promise.race([
+            authenticateWithStoredBiometric(walletAddress),
+            new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000))
+          ]);
+          if (authenticated) {
+            console.log('✅ Stored biometric authentication successful');
           }
+        } catch (e) {
+          console.log('Stored biometric failed, trying general:', e);
         }
-        
-        // If stored credential doesn't work, try general biometric auth
-        if (!authenticated) {
-          try {
-            authenticated = await Promise.race([
-              authenticateWithBiometrics(),
-              new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3000))
-            ]);
-          } catch (e) {
-            console.log('General biometric failed:', e);
-          }
-        }
-        
-        return authenticated;
-      })();
+      }
       
-      const authenticated = await Promise.race([
-        authPromise,
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000)) // 5 second total timeout
-      ]);
+      // If stored credential doesn't work, try general biometric auth
+      if (!authenticated) {
+        try {
+          console.log('Trying general biometric authentication...');
+          authenticated = await Promise.race([
+            authenticateWithBiometrics(),
+            new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 60000)) // 60 seconds for WebAuthn
+          ]);
+          if (authenticated) {
+            console.log('✅ General biometric authentication successful');
+          } else {
+            console.log('❌ Biometric authentication failed or timed out');
+          }
+        } catch (e: any) {
+          console.error('General biometric error:', e.name, e.message);
+        }
+      }
       
       if (authenticated) {
         HapticFeedback.notification('success');
@@ -134,8 +135,8 @@ export default function AuthModal({
         HapticFeedback.notification('error');
         setShowPassword(true);
       }
-    } catch (error) {
-      console.error('Biometric authentication error:', error);
+    } catch (error: any) {
+      console.error('Biometric authentication error:', error.name, error.message);
       HapticFeedback.notification('error');
       setShowPassword(true);
     } finally {
