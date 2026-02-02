@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { checkBiometricAvailability, authenticateWithBiometrics, authenticateWithStoredBiometric } from '../utils/biometrics';
 import { HapticFeedback } from '../utils/telegram';
+import { showDebugInfo, logError, getEnvironmentInfo } from '../utils/debug';
 import LoadingSpinner from './LoadingSpinner';
 
 interface AuthModalProps {
@@ -36,6 +37,11 @@ export default function AuthModal({
       // Always show password input first, then check biometric in background
       setShowPassword(true);
       setIsCheckingBiometric(false);
+      
+      // Log environment info for debugging
+      const envInfo = getEnvironmentInfo();
+      console.log('AuthModal opened, environment:', envInfo);
+      
       checkBiometricBackground();
     } else {
       // Reset state when modal closes
@@ -89,40 +95,45 @@ export default function AuthModal({
     
     try {
       HapticFeedback.impact('light');
-      console.log('Starting biometric authentication attempt...');
+      showDebugInfo('Starting biometric authentication...', {
+        walletAddress: walletAddress ? walletAddress.slice(0, 8) + '...' : 'none',
+        platform: typeof window !== 'undefined' && window.Telegram?.WebApp?.platform,
+      });
       
       // First try with stored credential (if exists)
       let authenticated = false;
       if (walletAddress) {
         try {
-          console.log('Trying stored biometric credential...');
+          showDebugInfo('Trying stored biometric credential...');
           authenticated = await Promise.race([
             authenticateWithStoredBiometric(walletAddress),
             new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000))
           ]);
           if (authenticated) {
-            console.log('✅ Stored biometric authentication successful');
+            showDebugInfo('✅ Stored biometric authentication successful');
+          } else {
+            showDebugInfo('❌ Stored biometric failed');
           }
-        } catch (e) {
-          console.log('Stored biometric failed, trying general:', e);
+        } catch (e: any) {
+          logError('Stored biometric authentication', e);
         }
       }
       
       // If stored credential doesn't work, try general biometric auth
       if (!authenticated) {
         try {
-          console.log('Trying general biometric authentication...');
+          showDebugInfo('Trying general biometric authentication...');
           authenticated = await Promise.race([
             authenticateWithBiometrics(),
             new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 60000)) // 60 seconds for WebAuthn
           ]);
           if (authenticated) {
-            console.log('✅ General biometric authentication successful');
+            showDebugInfo('✅ General biometric authentication successful');
           } else {
-            console.log('❌ Biometric authentication failed or timed out');
+            showDebugInfo('❌ Biometric authentication failed or timed out');
           }
         } catch (e: any) {
-          console.error('General biometric error:', e.name, e.message);
+          logError('General biometric authentication', e);
         }
       }
       
@@ -131,12 +142,12 @@ export default function AuthModal({
         onAuthenticated();
       } else {
         // Biometric auth failed or timed out, show password fallback
-        console.log('Biometric auth failed or timed out, showing password');
+        showDebugInfo('Biometric auth failed, showing password input');
         HapticFeedback.notification('error');
         setShowPassword(true);
       }
     } catch (error: any) {
-      console.error('Biometric authentication error:', error.name, error.message);
+      logError('Biometric authentication attempt', error);
       HapticFeedback.notification('error');
       setShowPassword(true);
     } finally {
