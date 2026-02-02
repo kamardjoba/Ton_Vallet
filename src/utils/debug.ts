@@ -11,20 +11,8 @@ export function showDebugInfo(message: string, data?: any) {
   const timestamp = new Date().toLocaleTimeString();
   const logMessage = `[${timestamp}] ${message}`;
   
+  // Only log to console, don't show alerts to user
   console.log(logMessage, data || '');
-  
-  // Try to show in Telegram WebApp if available
-  if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-    const tg = window.Telegram.WebApp;
-    
-    // Show alert in Telegram (for debugging)
-    try {
-      tg.showAlert(logMessage + (data ? `\n${JSON.stringify(data, null, 2)}` : ''));
-    } catch (e) {
-      // Alert might not be available, just log
-      console.warn('Could not show alert:', e);
-    }
-  }
   
   // Also log to console with more details
   if (data) {
@@ -48,15 +36,8 @@ export function logError(context: string, error: any) {
   
   console.error(`[ERROR] ${context}:`, errorInfo);
   
-  // Show simplified error to user
-  if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-    const tg = window.Telegram.WebApp;
-    try {
-      tg.showAlert(`Error: ${context}\n${error?.message || 'Unknown error'}`);
-    } catch (e) {
-      // Ignore
-    }
-  }
+  // Don't show alerts to user, only log to console
+  // User will see error in UI if needed
   
   return errorInfo;
 }

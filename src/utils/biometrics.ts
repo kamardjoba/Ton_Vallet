@@ -144,99 +144,37 @@ async function authenticateWithWebAuthn(): Promise<boolean> {
     // Get current origin for rpId
     const rpId = window.location.hostname || 'localhost';
     
-    // For Telegram Mini App, we need to use a simpler approach
-    // Try creating a credential first (this will trigger Face ID immediately)
-    // If that fails, fall back to get()
-    let credential: PublicKeyCredential | null = null;
+    // Direct WebAuthn authentication - this should trigger Face ID/Touch ID immediately
+    // Use get() method with empty allowCredentials to trigger platform authenticator
+    const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
+      challenge: challenge,
+      allowCredentials: [], // Empty array triggers platform authenticator selection
+      userVerification: 'required', // This forces biometric authentication
+      rpId: rpId,
+      timeout: 60000,
+    };
     
-    if (window.Telegram?.WebApp?.platform === 'ios' || window.Telegram?.WebApp?.platform === 'android') {
-      console.log('Mobile Telegram detected, trying credential creation first...');
+    // Request authentication - this should directly trigger Face ID/Touch ID
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    
+    try {
+      const credential = await navigator.credentials.get({
+        publicKey: publicKeyCredentialRequestOptions,
+        signal: controller.signal,
+      }) as PublicKeyCredential | null;
       
-      try {
-        // Try to create a credential - this will immediately trigger Face ID
-        const createChallenge = new Uint8Array(32);
-        crypto.getRandomValues(createChallenge);
-        
-        const userId = new TextEncoder().encode('ton_wallet_user_' + Date.now());
-        const createOptions: PublicKeyCredentialCreationOptions = {
-          challenge: createChallenge,
-          rp: {
-            name: 'TON Wallet',
-            id: rpId,
-          },
-          user: {
-            id: userId,
-            name: 'TON Wallet User',
-            displayName: 'TON Wallet',
-          },
-          pubKeyCredParams: [
-            { alg: -7, type: 'public-key' }, // ES256
-          ],
-          authenticatorSelection: {
-            authenticatorAttachment: 'platform',
-            userVerification: 'required',
-            requireResidentKey: false,
-          },
-          timeout: 60000,
-          attestation: 'none',
-        };
-        
-        credential = await navigator.credentials.create({
-          publicKey: createOptions,
-        }) as PublicKeyCredential | null;
-        
-        if (credential && credential.type === 'public-key') {
-          console.log('✅ Biometric authentication successful via credential creation');
-          return true;
-        }
-      } catch (createError: any) {
-        console.log('Credential creation failed, trying get() method:', createError.name);
-        // Fall through to get() method
+      clearTimeout(timeoutId);
+      
+      if (credential && credential.type === 'public-key') {
+        console.log('✅ Biometric authentication successful');
+        return true;
       }
-    }
-    
-    // If creation didn't work or we're not on mobile Telegram, try get()
-    if (!credential) {
-      // Create credential request with proper options
-      const publicKeyCredentialRequestOptions: PublicKeyCredentialRequestOptions = {
-        challenge: challenge,
-        allowCredentials: [], // Empty array - browser will show available credentials
-        userVerification: 'required', // This is key - requires biometric
-        rpId: rpId,
-        timeout: 60000,
-      };
-    
-      console.log('Requesting WebAuthn authentication with options:', {
-        rpId,
-        userVerification: 'required',
-        hasChallenge: !!challenge,
-        allowCredentialsLength: publicKeyCredentialRequestOptions.allowCredentials?.length || 0,
-      });
       
-      // Request authentication
-      // Use AbortController for better timeout handling
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
-      
-      try {
-        credential = await navigator.credentials.get({
-          publicKey: publicKeyCredentialRequestOptions,
-          signal: controller.signal,
-        }) as PublicKeyCredential | null;
-        
-        clearTimeout(timeoutId);
-        
-        if (credential && credential.type === 'public-key') {
-          console.log('✅ Biometric authentication successful via get()');
-          return true;
-        }
-        
-        console.log('No credential returned');
-        return false;
-      } catch (getError: any) {
-        clearTimeout(timeoutId);
-        throw getError;
-      }
+      return false;
+    } catch (getError: any) {
+      clearTimeout(timeoutId);
+      throw getError;
     }
   } catch (error: any) {
     // User cancelled or authentication failed
