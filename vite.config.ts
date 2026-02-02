@@ -237,11 +237,10 @@ export default defineConfig({
       external: [],
       output: {
         manualChunks: undefined,
-        // Use IIFE format for better browser compatibility and CommonJS handling
-        format: 'iife',
-        name: 'WalletApp',
-        // Globals for external dependencies (if any)
-        globals: {},
+        // Use ES format for modern browsers (better for Telegram Mini App)
+        format: 'es',
+        // Don't preserve modules - bundle everything
+        preserveModules: false,
       },
       plugins: [
         {

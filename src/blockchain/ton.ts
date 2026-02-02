@@ -141,7 +141,25 @@ export async function generateWalletFromSeed(seedPhrase: string): Promise<Wallet
       privateKey: privateKeyHex,
     };
   } catch (error) {
-    throw new Error(`Failed to generate wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    // Log detailed error for debugging
+    console.error('generateWalletFromSeed error:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error details:', {
+      message: errorMessage,
+      stack: error instanceof Error ? error.stack : 'N/A',
+      seedPhraseLength: seedPhrase.length,
+      wordsCount: words.length,
+    });
+    
+    // Provide more specific error messages
+    if (errorMessage.includes('mnemonic') || errorMessage.includes('word')) {
+      throw new Error('Invalid seed phrase. Please check that all words are correct and from the BIP39 wordlist.');
+    }
+    if (errorMessage.includes('buffer') || errorMessage.includes('Buffer')) {
+      throw new Error('Internal error: Buffer polyfill not loaded. Please refresh the page.');
+    }
+    
+    throw new Error(`Failed to generate wallet: ${errorMessage}`);
   }
 }
 

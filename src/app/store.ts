@@ -120,8 +120,17 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
             get().loadJettons(),
           ]);
         } catch (error) {
+          // Log full error for debugging
+          console.error('initializeWallet error:', error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error('Error message:', errorMessage);
+          console.error('Error stack:', error instanceof Error ? error.stack : 'N/A');
+          
           const errorDetails = getUserFriendlyError(error);
-          securityLogger.log('WALLET_INIT_ERROR', { error: errorDetails.code });
+          securityLogger.log('WALLET_INIT_ERROR', { 
+            error: errorDetails.code,
+            originalError: errorMessage 
+          });
           set({ error: errorDetails.userMessage });
           throw new Error(errorDetails.userMessage);
         }
