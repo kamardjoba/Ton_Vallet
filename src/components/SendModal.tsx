@@ -58,12 +58,15 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
     }
 
     // Store transaction details and show auth modal
+    console.log('Setting pending transaction and showing auth modal');
     setPendingTransaction({
       toAddress,
       amount,
       comment: comment || undefined,
     });
+    console.log('Pending transaction set:', { toAddress, amount, comment: comment || undefined });
     setShowAuthModal(true);
+    console.log('Auth modal should be visible now');
   };
 
   const handleAuthenticated = async () => {
@@ -129,16 +132,20 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
     setPendingTransaction(null);
   };
 
+  console.log('SendModal render:', { isOpen, showAuthModal, pendingTransaction: !!pendingTransaction });
+
   return (
     <>
-      <AuthModal
-        isOpen={showAuthModal}
-        walletAddress={wallet?.address || ''}
-        onAuthenticated={handleAuthenticated}
-        onPasswordAuth={handlePasswordAuth}
-        onCancel={handleAuthCancel}
-      />
-      <div className="modal-overlay" onClick={handleClose}>
+      {showAuthModal && (
+        <AuthModal
+          isOpen={showAuthModal}
+          walletAddress={wallet?.address || ''}
+          onAuthenticated={handleAuthenticated}
+          onPasswordAuth={handlePasswordAuth}
+          onCancel={handleAuthCancel}
+        />
+      )}
+      <div className="modal-overlay" onClick={handleClose} style={{ display: isOpen ? 'flex' : 'none' }}>
         <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Send TON</h2>
