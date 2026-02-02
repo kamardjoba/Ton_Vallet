@@ -45,6 +45,8 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
       onRestored();
     } catch (err) {
       console.error('Failed to restore wallet:', err);
+      // Error is already set in store by initializeWallet
+      // Just ensure loading state is reset
     } finally {
       setIsLoading(false);
     }
@@ -116,7 +118,7 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
           )}
 
           {error && (
-            <div className="error-message">
+            <div className="error-message animate-slide-up">
               {error}
             </div>
           )}

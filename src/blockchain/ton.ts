@@ -102,8 +102,9 @@ export async function generateWalletFromSeed(seedPhrase: string): Promise<Wallet
 
   try {
     // mnemonicToSeed requires seed string as second parameter
-    // Use "TON default seed" for standard wallet generation
-    const seed = await mnemonicToSeed(words, 'TON default seed');
+    // Use empty string for standard TON wallet generation (compatible with most TON wallets)
+    // Some wallets use 'TON default seed', but empty string is more standard
+    const seed = await mnemonicToSeed(words, '');
     // keyPairFromSeed expects Buffer, seed is already Buffer from mnemonicToSeed
     // Use first 32 bytes of seed for key pair generation
     const keyPair = keyPairFromSeed(seed.slice(0, 32));

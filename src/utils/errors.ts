@@ -170,6 +170,22 @@ export function getUserFriendlyError(error: Error | string | unknown): ErrorDeta
     };
   }
 
+  if (errorUpper.includes('SEED PHRASE') || errorUpper.includes('MNEMONIC') || errorUpper.includes('24 WORDS')) {
+    return {
+      code: 'INVALID_SEED_PHRASE',
+      ...ERROR_MESSAGES.INVALID_SEED_PHRASE,
+    };
+  }
+
+  if (errorUpper.includes('FAILED TO GENERATE WALLET') || errorUpper.includes('GENERATE WALLET')) {
+    return {
+      code: 'INVALID_SEED_PHRASE',
+      userMessage: 'Unable to restore wallet from this seed phrase. Please check that all 24 words are correct and try again.',
+      message: 'Failed to generate wallet from seed phrase',
+      recoverable: true,
+    };
+  }
+
   // Default to unknown error
   return {
     code: 'UNKNOWN_ERROR',
