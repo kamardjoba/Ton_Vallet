@@ -1008,7 +1008,249 @@ export async function getNFTItems(address: string): Promise<NFTItem[]> {
     console.log('🔍 Starting NFT detection for address:', normalizedAddress);
     console.log('🔍 API address (raw):', apiAddress);
     
-    // Approach 1: Try to get NFTs using transactions
+    // Approach 1: Try to use TON API v2 directly for NFT queries (PRIMARY METHOD - FASTEST)
+    // This is the most reliable way to get NFTs
+    try {
+      console.log('🔍 Trying TON API v2 for direct NFT query (PRIMARY METHOD)...');
+      
+      // Try multiple address formats for TON API
+      // TON API accepts both raw (0:...) and user-friendly (EQ...) formats
+      const addressFormats = [
+        apiAddress, // Raw format
+        normalizedAddress, // User-friendly format
+      ];
+      
+      // Also try without workchain prefix if it's raw format
+      if (apiAddress.includes(':')) {
+        const parts = apiAddress.split(':');
+        if (parts.length === 2) {
+          addressFormats.push(parts[1]); // Just the hex part
+        }
+      }
+      
+      let response: Response | null = null;
+      let lastError: Error | null = null;
+      
+      // Try each address format until one works
+      for (const addressFormat of addressFormats) {
+        try {
+          // Use TON API v2 endpoint for NFTs
+          // This is the recommended way to get NFTs for an address
+          const tonApiUrl = `https://tonapi.io/v2/accounts/${addressFormat}/nfts`;
+          
+          console.log('📡 Requesting NFTs from TON API:', tonApiUrl);
+          
+          response = await fetch(tonApiUrl, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+            },
+          });
+          
+          if (response.ok) {
+            console.log(`✅ Successfully fetched NFTs using address format: ${addressFormat}`);
+            break; // Success, exit loop
+          } else if (response.status !== 404) {
+            // If it's not 404, try next format
+            console.warn(`⚠️ TON API returned status ${response.status} for format ${addressFormat}, trying next...`);
+            lastError = new Error(`API returned ${response.status}`);
+            continue;
+          } else {
+            // 404 means address not found, try next format
+            console.warn(`⚠️ Address format ${addressFormat} returned 404, trying next...`);
+            lastError = new Error(`Address not found (404)`);
+            continue;
+          }
+        } catch (fetchError) {
+          console.warn(`⚠️ Error fetching with format ${addressFormat}:`, fetchError);
+          lastError = fetchError instanceof Error ? fetchError : new Error(String(fetchError));
+          continue;
+        }
+      }
+      
+      if (!response || !response.ok) {
+        if (lastError) {
+          throw lastError;
+        }
+        if (response?.status === 429) {
+          console.warn('⚠️ Rate limit on TON API, will try alternative methods...');
+        } else {
+          console.warn(`⚠️ TON API returned status ${response?.status}, trying alternative methods...`);
+        }
+        throw new Error(`API returned ${response?.status || 'unknown'}`);
+      }
+
+      const data = await response.json();
+      console.log('📦 TON API response:', JSON.stringify(data, null, 2));
+      console.log('📦 TON API response keys:', Object.keys(data));
+      console.log('📦 TON API response type:', typeof data);
+      console.log('📦 TON API response is array:', Array.isArray(data));
+
+      // Parse NFT items from API response
+      // TON API v2 can return NFTs in different formats
+      let nftArray: any[] = [];
+      
+      // Check all possible response formats
+      if (data.nft_items && Array.isArray(data.nft_items)) {
+        nftArray = data.nft_items;
+        console.log('✅ Found NFTs in data.nft_items');
+      } else if (data.items && Array.isArray(data.items)) {
+        nftArray = data.items;
+        console.log('✅ Found NFTs in data.items');
+      } else if (Array.isArray(data)) {
+        nftArray = data;
+        console.log('✅ Found NFTs as direct array');
+      } else if (data.nfts && Array.isArray(data.nfts)) {
+        nftArray = data.nfts;
+        console.log('✅ Found NFTs in data.nfts');
+      } else if (data.accounts && Array.isArray(data.accounts)) {
+        // Sometimes NFTs are returned as accounts
+        nftArray = data.accounts;
+        console.log('✅ Found NFTs in data.accounts');
+      } else if (data.collection && data.collection.nft_items && Array.isArray(data.collection.nft_items)) {
+        nftArray = data.collection.nft_items;
+        console.log('✅ Found NFTs in data.collection.nft_items');
+      }
+      
+      console.log(`📊 Parsed ${nftArray.length} NFTs from API response`);
+      
+      if (nftArray.length > 0) {
+        console.log(`✅ Found ${nftArray.length} NFTs from TON API`);
+        
+        for (const nftData of nftArray) {
+          // Handle different response formats
+          const nftAddress = nftData.address || nftData.nft_address || nftData.item_address;
+          if (!nftAddress) {
+            console.warn('  ⚠️ NFT data missing address:', nftData);
+            continue;
+          }
+          
+          // Check if we already have this NFT
+          const addressLower = nftAddress.toLowerCase();
+          if (seenAddresses.has(addressLower)) {
+            console.log(`  ⏭️ NFT ${nftAddress} already added, skipping`);
+            continue;
+          }
+          
+          seenAddresses.add(addressLower);
+          
+          // Extract NFT information
+          const nftItem: NFTItem = {
+            address: nftAddress,
+            ownerAddress: normalizedAddress,
+            index: nftData.index || nftData.item_index,
+            collectionAddress: nftData.collection?.address || nftData.collection_address || nftData.collectionAddress,
+          };
+          
+          // Try to get metadata if available (different possible locations)
+          const metadata = nftData.metadata || nftData;
+          if (metadata) {
+            if (metadata.name) nftItem.name = metadata.name;
+            if (metadata.description) nftItem.description = metadata.description;
+            if (metadata.image) {
+              nftItem.image = resolveIpfsUrl(metadata.image);
+            }
+            if (metadata.poster) nftItem.poster = resolveIpfsUrl(metadata.poster);
+            if (metadata.thumbnail || metadata.preview) {
+              nftItem.thumbnail = resolveIpfsUrl(metadata.thumbnail || metadata.preview);
+            }
+            if (metadata.attributes) nftItem.attributes = metadata.attributes;
+          }
+          
+          // If no name, use default
+          if (!nftItem.name) {
+            nftItem.name = `NFT ${nftAddress.slice(-8)}`;
+          }
+          
+          console.log(`  ✅ Added NFT: ${nftItem.name} (${nftAddress})`);
+          nftItems.push(nftItem);
+        }
+        
+        // If we found NFTs via API, return them immediately (don't need to check transactions)
+        if (nftItems.length > 0) {
+          console.log(`\n✅ Successfully loaded ${nftItems.length} NFTs from TON API`);
+          return nftItems;
+        }
+      } else if (data.nft_items && Array.isArray(data.nft_items)) {
+        console.log(`✅ Found ${data.nft_items.length} NFTs from TON API`);
+        
+        for (const nftData of data.nft_items) {
+          const nftAddress = nftData.address || nftData.nft_address;
+          if (!nftAddress) continue;
+          
+          // Check if we already have this NFT
+          const addressLower = nftAddress.toLowerCase();
+          if (seenAddresses.has(addressLower)) {
+            console.log(`  ⏭️ NFT ${nftAddress} already added, skipping`);
+            continue;
+          }
+          
+          seenAddresses.add(addressLower);
+          
+          // Extract NFT information
+          const nftItem: NFTItem = {
+            address: nftAddress,
+            ownerAddress: normalizedAddress,
+            index: nftData.index,
+            collectionAddress: nftData.collection?.address || nftData.collection_address,
+          };
+          
+          // Try to get metadata if available
+          if (nftData.metadata) {
+            const metadata = nftData.metadata;
+            if (metadata.name) nftItem.name = metadata.name;
+            if (metadata.description) nftItem.description = metadata.description;
+            if (metadata.image) {
+              nftItem.image = resolveIpfsUrl(metadata.image);
+            }
+            if (metadata.poster) nftItem.poster = resolveIpfsUrl(metadata.poster);
+            if (metadata.thumbnail || metadata.preview) {
+              nftItem.thumbnail = resolveIpfsUrl(metadata.thumbnail || metadata.preview);
+            }
+            if (metadata.attributes) nftItem.attributes = metadata.attributes;
+          }
+          
+          // If no name, use default
+          if (!nftItem.name) {
+            nftItem.name = `NFT ${nftAddress.slice(-8)}`;
+          }
+          
+          console.log(`  ✅ Added NFT: ${nftItem.name} (${nftAddress})`);
+          nftItems.push(nftItem);
+        }
+        
+        // If we found NFTs via API, return them immediately (don't need to check transactions)
+        if (nftItems.length > 0) {
+          console.log(`\n✅ Successfully loaded ${nftItems.length} NFTs from TON API`);
+          return nftItems;
+        }
+      } else {
+        console.log('⚠️ TON API response format not recognized or empty:', {
+          keys: Object.keys(data),
+          hasNftItems: !!data.nft_items,
+          hasItems: !!data.items,
+          isArray: Array.isArray(data),
+          responsePreview: JSON.stringify(data).substring(0, 500),
+        });
+        
+        // If response is empty object or has no NFT data, log it for debugging
+        if (Object.keys(data).length === 0) {
+          console.warn('⚠️ TON API returned empty response - account may have no NFTs');
+        } else if (data.error) {
+          console.error('❌ TON API returned error:', data.error);
+        }
+      }
+      
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      if (errorMsg.includes('Rate limit') || errorMsg.includes('429')) {
+        console.warn('⚠️ Rate limit on TON API, will try transaction-based detection...');
+      } else {
+        console.warn('⚠️ TON API NFT query failed, trying alternative methods:', errorMsg);
+      }
+    }
+    
+    // Approach 2: Try to get NFTs using transactions (FALLBACK METHOD)
     // IMPORTANT: Only make ONE request to avoid rate limits
     let transactions: any[] | null = null;
     
@@ -1224,32 +1466,8 @@ export async function getNFTItems(address: string): Promise<NFTItem[]> {
       }
     }
 
-    // Approach 2: Try to use TON API v4 directly for NFT queries
-    // This is an alternative method that might work better
-    try {
-      console.log('🔍 Trying alternative NFT detection method via TON API v4...');
-      
-      // Try to get NFTs using TON API v4 endpoint
-      // Note: This requires the API to support NFT queries
-      const apiUrl = TONWEB_API_URL.replace('/jsonRPC', '');
-      
-      // Alternative: Try using Getgems API or other NFT services
-      // For now, we'll try a direct approach
-      
-      // Get account state to find NFT contracts
-      // In TON, NFTs are stored as separate contracts
-      // We need to find contracts that are NFT items owned by this address
-      
-      console.log('📡 Attempting direct API call for NFT detection...');
-      
-      // This is a placeholder - in production you'd use proper NFT API
-      // For example: https://tonapi.io/v2/accounts/{address}/nfts
-      
-    } catch (error) {
-      console.warn('⚠️ Alternative NFT detection method failed:', error);
-    }
 
-    // Approach 3: Try to find NFT by checking known NFT collection patterns
+    // Approach 3: Try to find NFT by checking known NFT collection patterns (FALLBACK)
     // This is a workaround - checking if transactions match NFT transfer patterns
     // NOTE: We use transactions from Approach 1 to avoid making another API call (rate limit)
     if (transactions && Array.isArray(transactions) && transactions.length > 0) {

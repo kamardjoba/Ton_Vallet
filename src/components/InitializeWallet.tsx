@@ -95,12 +95,15 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password (minimum 8 characters)"
+                placeholder="Password (minimum 8 characters, any characters allowed)"
                 className="password-input"
                 disabled={isLoading}
                 minLength={8}
                 autoFocus
               />
+              <div className="password-hint">
+                Use at least 8 characters. Letters, numbers, and symbols are allowed.
+              </div>
             </div>
 
             <div className="input-group">
@@ -212,6 +215,12 @@ export default function InitializeWallet({ onInitialized }: InitializeWalletProp
             border-color: #667eea;
             background: white;
             box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+          }
+
+          .password-hint {
+            margin-top: 4px;
+            font-size: 12px;
+            color: #666;
           }
 
           .error-message {

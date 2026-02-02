@@ -83,12 +83,15 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password (minimum 8 characters)"
+              placeholder="Password (minimum 8 characters, any characters allowed)"
               className="password-input"
               disabled={isLoading}
               minLength={8}
               required
             />
+            <div className="password-hint">
+              Use at least 8 characters. Letters, numbers, and symbols are allowed.
+            </div>
           </div>
 
           <div className="input-group">
@@ -240,6 +243,12 @@ export default function RestoreWallet({ onRestored, onBack }: RestoreWalletProps
         }
 
         .word-count {
+          margin-top: 4px;
+          font-size: 12px;
+          color: #666;
+        }
+
+        .password-hint {
           margin-top: 4px;
           font-size: 12px;
           color: #666;

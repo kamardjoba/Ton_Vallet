@@ -1,0 +1,7 @@
+# Telegram Bot Token
+# Получите токен у @BotFather в Telegram
+BOT_TOKEN=YOUR_BOT_TOKEN_HERE
+
+# URL вашего веб-приложения
+# Замените на ваш Netlify URL или другой хостинг
+WEB_APP_URL=https://tonvallet.netlify.app

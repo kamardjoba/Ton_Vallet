@@ -98,17 +98,12 @@ export function validatePassword(password: string): { valid: boolean; error?: st
     return { valid: false, error: 'Password is too long (max 128 characters)' };
   }
 
-  // Check for at least one number
-  if (!/\d/.test(password)) {
-    return { valid: false, error: 'Password must contain at least one number' };
-  }
+  // Password requirements are now more flexible:
+  // - Minimum 8 characters (required)
+  // - Can contain letters, numbers, and special characters
+  // - No strict requirements for numbers or letters (user can choose their own security level)
 
-  // Check for at least one letter
-  if (!/[a-zA-Z]/.test(password)) {
-    return { valid: false, error: 'Password must contain at least one letter' };
-  }
-
-  // Calculate strength
+  // Calculate strength (optional, for user feedback)
   let strength: 'weak' | 'medium' | 'strong' = 'weak';
   let score = 0;
 

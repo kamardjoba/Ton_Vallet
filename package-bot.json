@@ -1,0 +1,24 @@
+{
+  "name": "ton-wallet-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for TON Wallet",
+  "main": "telegram-bot.js",
+  "scripts": {
+    "start": "node telegram-bot.js",
+    "dev": "nodemon telegram-bot.js"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "ton",
+    "wallet"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "node-telegram-bot-api": "^0.64.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
