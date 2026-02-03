@@ -187,8 +187,16 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
     console.log('QR Code scanned:', qrData);
     setShowQRScanner(false);
     
+    // Clean up QR data - remove newlines and extra spaces
+    const cleanedQRData = qrData.trim().replace(/\s+/g, '').replace(/\n/g, '');
+    console.log('Cleaned QR data:', cleanedQRData);
+    
     // First, try to parse as TON Connect URL (tc:// or tonconnect://)
-    const tonConnectRequest = parseTONConnectURL(qrData);
+    // Try both original and cleaned versions
+    let tonConnectRequest = parseTONConnectURL(cleanedQRData);
+    if (!tonConnectRequest) {
+      tonConnectRequest = parseTONConnectURL(qrData);
+    }
     
     if (tonConnectRequest) {
       // This is a TON Connect request
@@ -203,9 +211,10 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
     // - https://getgems.io/... (GetGems and other DApps)
     
     try {
-      // Check for TON Connect protocol
-      if (qrData.startsWith('tonconnect://') || qrData.startsWith('tc://')) {
-        const request = parseTONConnectURL(qrData);
+      // Check for TON Connect protocol (also check cleaned version)
+      if (cleanedQRData.startsWith('tonconnect://') || cleanedQRData.startsWith('tc://') ||
+          qrData.startsWith('tonconnect://') || qrData.startsWith('tc://')) {
+        const request = parseTONConnectURL(cleanedQRData) || parseTONConnectURL(qrData);
         if (request) {
           handleTONConnectRequest(request);
           return;
@@ -315,31 +324,51 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
 
   const handleTONConnectRequest = async (request: { version: string; requestId: string; request: string }) => {
     try {
+      console.log('Processing TON Connect request:', {
+        version: request.version,
+        requestId: request.requestId,
+        requestLength: request.request.length,
+        requestPreview: request.request.substring(0, 200) + '...',
+      });
+
       // Decode the request
       const decodedRequest = decodeTONConnectRequest(request.request);
       
-      if (!decodedRequest || !decodedRequest.manifestUrl) {
+      console.log('Decoded request:', decodedRequest);
+
+      if (!decodedRequest) {
+        throw new Error('Failed to decode TON Connect request');
+      }
+
+      // Extract manifestUrl - it might be in different places
+      const manifestUrl = decodedRequest.manifestUrl || 
+                         decodedRequest.manifest?.url ||
+                         decodedRequest.url;
+
+      if (!manifestUrl) {
+        console.error('Decoded request structure:', decodedRequest);
         throw new Error('Invalid TON Connect request: missing manifestUrl');
       }
 
-      console.log('TON Connect request decoded:', {
+      console.log('TON Connect request decoded successfully:', {
         version: request.version,
         requestId: request.requestId,
-        manifestUrl: decodedRequest.manifestUrl,
+        manifestUrl: manifestUrl,
       });
 
       // Show connection modal
       setDAppConnectionData({
-        manifestUrl: decodedRequest.manifestUrl,
+        manifestUrl: manifestUrl,
         requestId: request.requestId,
       });
       setShowDAppConnection(true);
     } catch (error) {
       console.error('Error handling TON Connect request:', error);
+      console.error('Request object:', request);
       const errorMsg = error instanceof Error ? error.message : 'Failed to process connection request';
       if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
         window.Telegram.WebApp.showAlert(
-          `Connection Error\n\n${errorMsg}\n\nPlease try scanning the QR code again.`
+          `Connection Error\n\n${errorMsg}\n\nPlease try scanning the QR code again.\n\nIf the problem persists, make sure you're scanning a valid TON Connect QR code.`
         );
       } else {
         alert(`Connection Error: ${errorMsg}`);

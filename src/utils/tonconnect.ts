@@ -32,35 +32,84 @@ export interface TONConnectSession {
  */
 export function parseTONConnectURL(url: string): TONConnectRequest | null {
   try {
+    // Clean up URL - remove newlines and extra whitespace
+    const cleanedUrl = url.trim().replace(/\s+/g, '').replace(/\n/g, '');
+    
     // Handle tc:// and tonconnect:// protocols
     let parsedUrl: URL;
-    if (url.startsWith('tc://')) {
-      const httpsUrl = url.replace('tc://', 'https://');
+    let protocol = '';
+    
+    if (cleanedUrl.startsWith('tc://')) {
+      protocol = 'tc://';
+      // Replace tc:// with https:// for URL parsing
+      const httpsUrl = cleanedUrl.replace('tc://', 'https://');
       parsedUrl = new URL(httpsUrl);
-    } else if (url.startsWith('tonconnect://')) {
-      const httpsUrl = url.replace('tonconnect://', 'https://');
+    } else if (cleanedUrl.startsWith('tonconnect://')) {
+      protocol = 'tonconnect://';
+      const httpsUrl = cleanedUrl.replace('tonconnect://', 'https://');
       parsedUrl = new URL(httpsUrl);
-    } else if (url.startsWith('https://') || url.startsWith('http://')) {
-      parsedUrl = new URL(url);
+    } else if (cleanedUrl.startsWith('https://') || cleanedUrl.startsWith('http://')) {
+      parsedUrl = new URL(cleanedUrl);
     } else {
-      return null;
+      // Try to detect if it's a TON Connect URL without protocol
+      // Some QR codes might have the format without protocol prefix
+      if (cleanedUrl.includes('v=2') && cleanedUrl.includes('id=') && cleanedUrl.includes('r=')) {
+        // Try adding tc:// prefix
+        const withProtocol = 'tc://?' + cleanedUrl.split('?')[1] || cleanedUrl;
+        const httpsUrl = withProtocol.replace('tc://', 'https://');
+        parsedUrl = new URL(httpsUrl);
+      } else {
+        return null;
+      }
     }
 
-    const version = parsedUrl.searchParams.get('v') || '2';
-    const requestId = parsedUrl.searchParams.get('id');
-    const request = parsedUrl.searchParams.get('r');
+    const version = parsedUrl.searchParams.get('v') || parsedUrl.searchParams.get('version') || '2';
+    const requestId = parsedUrl.searchParams.get('id') || parsedUrl.searchParams.get('requestId');
+    let request = parsedUrl.searchParams.get('r') || parsedUrl.searchParams.get('request');
 
     if (!requestId || !request) {
+      console.warn('Missing TON Connect parameters:', { requestId, hasRequest: !!request });
       return null;
     }
+
+    // The request parameter might be URL-encoded multiple times
+    // Try to decode it
+    try {
+      // Try decoding multiple times in case of double encoding
+      let decoded = request;
+      for (let i = 0; i < 3; i++) {
+        try {
+          const testDecode = decodeURIComponent(decoded);
+          if (testDecode !== decoded) {
+            decoded = testDecode;
+          } else {
+            break;
+          }
+        } catch {
+          break;
+        }
+      }
+      request = decoded;
+    } catch (decodeError) {
+      console.warn('Error decoding request parameter, using as-is:', decodeError);
+    }
+
+    console.log('Parsed TON Connect URL:', {
+      protocol,
+      version,
+      requestId,
+      requestLength: request.length,
+      requestPreview: request.substring(0, 100) + '...',
+    });
 
     return {
       version,
       requestId,
-      request: decodeURIComponent(request),
+      request,
     };
   } catch (error) {
     console.error('Error parsing TON Connect URL:', error);
+    console.error('Original URL:', url);
     return null;
   }
 }
@@ -71,18 +120,55 @@ export function parseTONConnectURL(url: string): TONConnectRequest | null {
  */
 export function decodeTONConnectRequest(encodedRequest: string): any {
   try {
+    console.log('Decoding TON Connect request, length:', encodedRequest.length);
+    console.log('Request preview:', encodedRequest.substring(0, 200) + '...');
+    
     // The request might already be decoded or might need decoding
-    let decoded: string;
-    try {
-      decoded = decodeURIComponent(encodedRequest);
-    } catch {
-      // If decoding fails, try using as-is
-      decoded = encodedRequest;
+    let decoded: string = encodedRequest;
+    
+    // Try to decode multiple times in case of multiple encoding
+    for (let i = 0; i < 5; i++) {
+      try {
+        const testDecode = decodeURIComponent(decoded);
+        // If decoding didn't change anything, we're done
+        if (testDecode === decoded) {
+          break;
+        }
+        decoded = testDecode;
+        console.log(`Decoded iteration ${i + 1}, length:`, decoded.length);
+      } catch (decodeError) {
+        // If decoding fails, use current value
+        console.log(`Decoding iteration ${i + 1} failed, using current value`);
+        break;
+      }
     }
     
-    return JSON.parse(decoded);
+    // Try to parse as JSON
+    try {
+      const parsed = JSON.parse(decoded);
+      console.log('Successfully parsed JSON request');
+      return parsed;
+    } catch (parseError) {
+      // If JSON parsing fails, try to extract JSON from the string
+      // Sometimes the request might be wrapped in quotes or have extra characters
+      const jsonMatch = decoded.match(/\{.*\}/s);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          console.log('Successfully parsed JSON from extracted match');
+          return parsed;
+        } catch {
+          // Continue to error
+        }
+      }
+      
+      console.error('Failed to parse as JSON:', parseError);
+      console.error('Decoded string:', decoded.substring(0, 500));
+      throw parseError;
+    }
   } catch (error) {
     console.error('Error decoding TON Connect request:', error);
+    console.error('Original encoded request length:', encodedRequest.length);
     return null;
   }
 }
