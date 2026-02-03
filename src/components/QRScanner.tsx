@@ -106,6 +106,9 @@ export default function QRScanner({ isOpen, onClose, onScan }: QRScannerProps) {
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
           context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          
+          // Note: willReadFrequently optimization is handled by browser automatically
+          // when getImageData is called frequently
 
           // Try to detect QR code using image data
           // For now, we'll use a library approach
@@ -126,7 +129,12 @@ export default function QRScanner({ isOpen, onClose, onScan }: QRScannerProps) {
       });
 
       if (code && code.data) {
-        HapticFeedback.notification('success');
+        try {
+          HapticFeedback.notification('success');
+        } catch (hapticError) {
+          // HapticFeedback might not be supported in some Telegram versions
+          console.log('HapticFeedback not available:', hapticError);
+        }
         stopScanning();
         onScan(code.data);
       }

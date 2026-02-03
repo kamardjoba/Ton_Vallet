@@ -534,15 +534,27 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
     console.log('Generic QR code:', qrData);
     
     // Show the scanned data to user
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      window.Telegram.WebApp.showAlert(
-        `QR Code scanned:\n\n` +
-        `${qrData.substring(0, 100)}${qrData.length > 100 ? '...' : ''}\n\n` +
-        `Format: Unknown\n\n` +
-        `TON Connect integration coming soon!`
-      );
-    } else {
-      alert(`QR Code: ${qrData.substring(0, 100)}${qrData.length > 100 ? '...' : ''}`);
+    // Try to use Telegram WebApp alert, but fallback to console if not supported
+    try {
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        const tg = window.Telegram.WebApp;
+        // Check if showAlert is available
+        if (typeof tg.showAlert === 'function') {
+          tg.showAlert(
+            `QR Code scanned:\n\n` +
+            `${qrData.substring(0, 100)}${qrData.length > 100 ? '...' : ''}\n\n` +
+            `Format: Unknown\n\n` +
+            `TON Connect integration coming soon!`
+          );
+        } else {
+          console.log('QR Code scanned (showAlert not available):', qrData.substring(0, 100));
+        }
+      } else {
+        alert(`QR Code: ${qrData.substring(0, 100)}${qrData.length > 100 ? '...' : ''}`);
+      }
+    } catch (error) {
+      // If showAlert fails, just log to console
+      console.log('QR Code scanned (error showing alert):', qrData.substring(0, 100));
     }
   };
 

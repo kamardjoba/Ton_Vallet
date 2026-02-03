@@ -35,37 +35,82 @@ export function parseTONConnectURL(url: string): TONConnectRequest | null {
     // Clean up URL - remove newlines and extra whitespace
     const cleanedUrl = url.trim().replace(/\s+/g, '').replace(/\n/g, '');
     
-    // Handle tc:// and tonconnect:// protocols
-    let parsedUrl: URL;
+    let queryString = '';
     let protocol = '';
     
+    // Handle tc:// and tonconnect:// protocols (they don't have a host)
     if (cleanedUrl.startsWith('tc://')) {
       protocol = 'tc://';
-      // Replace tc:// with https:// for URL parsing
-      const httpsUrl = cleanedUrl.replace('tc://', 'https://');
-      parsedUrl = new URL(httpsUrl);
+      // Extract query string after tc://
+      const match = cleanedUrl.match(/^tc:\/\/(.*)$/);
+      if (match) {
+        queryString = match[1].startsWith('?') ? match[1].substring(1) : match[1];
+      }
     } else if (cleanedUrl.startsWith('tonconnect://')) {
       protocol = 'tonconnect://';
-      const httpsUrl = cleanedUrl.replace('tonconnect://', 'https://');
-      parsedUrl = new URL(httpsUrl);
+      const match = cleanedUrl.match(/^tonconnect:\/\/(.*)$/);
+      if (match) {
+        queryString = match[1].startsWith('?') ? match[1].substring(1) : match[1];
+      }
     } else if (cleanedUrl.startsWith('https://') || cleanedUrl.startsWith('http://')) {
-      parsedUrl = new URL(cleanedUrl);
+      // For HTTP/HTTPS URLs, use standard URL parsing
+      try {
+        const parsedUrl = new URL(cleanedUrl);
+        const version = parsedUrl.searchParams.get('v') || parsedUrl.searchParams.get('version') || '2';
+        const requestId = parsedUrl.searchParams.get('id') || parsedUrl.searchParams.get('requestId');
+        let request = parsedUrl.searchParams.get('r') || parsedUrl.searchParams.get('request');
+
+        if (!requestId || !request) {
+          return null;
+        }
+
+        // Decode request parameter
+        try {
+          let decoded = request;
+          for (let i = 0; i < 3; i++) {
+            try {
+              const testDecode = decodeURIComponent(decoded);
+              if (testDecode !== decoded) {
+                decoded = testDecode;
+              } else {
+                break;
+              }
+            } catch {
+              break;
+            }
+          }
+          request = decoded;
+        } catch (decodeError) {
+          console.warn('Error decoding request parameter, using as-is:', decodeError);
+        }
+
+        return {
+          version,
+          requestId,
+          request,
+        };
+      } catch (urlError) {
+        console.error('Error parsing HTTP URL:', urlError);
+        return null;
+      }
     } else {
       // Try to detect if it's a TON Connect URL without protocol
-      // Some QR codes might have the format without protocol prefix
       if (cleanedUrl.includes('v=2') && cleanedUrl.includes('id=') && cleanedUrl.includes('r=')) {
-        // Try adding tc:// prefix
-        const withProtocol = 'tc://?' + cleanedUrl.split('?')[1] || cleanedUrl;
-        const httpsUrl = withProtocol.replace('tc://', 'https://');
-        parsedUrl = new URL(httpsUrl);
+        queryString = cleanedUrl.includes('?') ? cleanedUrl.split('?')[1] : cleanedUrl;
       } else {
         return null;
       }
     }
 
-    const version = parsedUrl.searchParams.get('v') || parsedUrl.searchParams.get('version') || '2';
-    const requestId = parsedUrl.searchParams.get('id') || parsedUrl.searchParams.get('requestId');
-    let request = parsedUrl.searchParams.get('r') || parsedUrl.searchParams.get('request');
+    // Parse query string manually for tc:// and tonconnect://
+    if (!queryString) {
+      return null;
+    }
+
+    const params = new URLSearchParams(queryString);
+    const version = params.get('v') || params.get('version') || '2';
+    const requestId = params.get('id') || params.get('requestId');
+    let request = params.get('r') || params.get('request');
 
     if (!requestId || !request) {
       console.warn('Missing TON Connect parameters:', { requestId, hasRequest: !!request });
