@@ -184,30 +184,95 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
     // TON Connect QR codes can be in format:
     // - tonconnect://<protocol>?<params>
     // - https://<domain>/ton-connect?<params>
+    // - https://getgems.io/... (GetGems and other DApps)
     
     try {
-      if (qrData.startsWith('tonconnect://') || qrData.includes('ton-connect')) {
-        // Handle TON Connect connection
+      // Check for TON Connect protocol
+      if (qrData.startsWith('tonconnect://')) {
         handleTONConnect(qrData);
-      } else if (qrData.startsWith('https://') || qrData.startsWith('http://')) {
-        // Check if it's a TON Connect link
-        const url = new URL(qrData);
-        if (url.searchParams.has('v') || url.pathname.includes('ton-connect')) {
-          handleTONConnect(qrData);
-        } else {
-          // Regular URL - could be a DApp
-          handleDAppConnection(qrData);
-        }
-      } else {
-        // Try to parse as TON address or other format
-        handleGenericQR(qrData);
+        return;
       }
+      
+      // Check for HTTPS/HTTP URLs
+      if (qrData.startsWith('https://') || qrData.startsWith('http://')) {
+        try {
+          const url = new URL(qrData);
+          
+          // Check for TON Connect parameters
+          const hasTonConnectParams = 
+            url.searchParams.has('v') || 
+            url.searchParams.has('id') ||
+            url.searchParams.has('r') ||
+            url.pathname.includes('ton-connect') ||
+            url.pathname.includes('tonconnect');
+          
+          if (hasTonConnectParams) {
+            handleTONConnect(qrData);
+            return;
+          }
+          
+          // Check for known DApp domains
+          const dappDomains = [
+            'getgems.io',
+            'getgems.org',
+            'fragment.com',
+            'ton.diamonds',
+            'tonapi.io',
+          ];
+          
+          const isKnownDApp = dappDomains.some(domain => 
+            url.hostname.includes(domain)
+          );
+          
+          if (isKnownDApp) {
+            handleDAppConnection(qrData);
+            return;
+          }
+          
+          // Generic URL - try as DApp
+          handleDAppConnection(qrData);
+          return;
+        } catch (urlError) {
+          console.error('Error parsing URL:', urlError);
+          // Fall through to generic handler
+        }
+      }
+      
+      // Check if it's a TON address
+      if (qrData.match(/^[A-Za-z0-9_-]{48}$/) || 
+          qrData.startsWith('EQ') || 
+          qrData.startsWith('UQ') ||
+          qrData.startsWith('0:')) {
+        handleTONAddress(qrData);
+        return;
+      }
+      
+      // Try to decode as JSON (some QR codes contain JSON)
+      try {
+        const jsonData = JSON.parse(qrData);
+        if (jsonData.url || jsonData.connect) {
+          handleTONConnect(jsonData.url || jsonData.connect);
+          return;
+        }
+      } catch (jsonError) {
+        // Not JSON, continue
+      }
+      
+      // Generic handler
+      handleGenericQR(qrData);
     } catch (error) {
       console.error('Error processing QR code:', error);
+      // Show more helpful error message
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-        window.Telegram.WebApp.showAlert('Invalid QR code format. Please scan a valid TON Connect QR code.');
+        window.Telegram.WebApp.showAlert(
+          `QR Code Error\n\n` +
+          `Scanned: ${qrData.substring(0, 50)}...\n\n` +
+          `Error: ${errorMsg}\n\n` +
+          `Please try scanning again or check if the QR code is valid.`
+        );
       } else {
-        alert('Invalid QR code format. Please scan a valid TON Connect QR code.');
+        alert(`QR Code Error: ${errorMsg}\n\nScanned: ${qrData.substring(0, 50)}...`);
       }
     }
   };
@@ -216,11 +281,14 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
     // Parse TON Connect URL
     // Format: tonconnect://<protocol>?v=2&id=<request_id>&r=<request>
     // or: https://<domain>/ton-connect?<params>
+    // GetGems and other DApps use: https://getgems.io/...
     
     try {
       let url: URL;
+      let isTonConnectProtocol = false;
       
       if (connectUrl.startsWith('tonconnect://')) {
+        isTonConnectProtocol = true;
         // Convert tonconnect:// to https:// for parsing
         const httpsUrl = connectUrl.replace('tonconnect://', 'https://');
         url = new URL(httpsUrl);
@@ -228,30 +296,67 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
         url = new URL(connectUrl);
       }
 
-      const version = url.searchParams.get('v') || '2';
-      const requestId = url.searchParams.get('id');
-      const request = url.searchParams.get('r');
+      const version = url.searchParams.get('v') || url.searchParams.get('version') || '2';
+      const requestId = url.searchParams.get('id') || url.searchParams.get('requestId');
+      const request = url.searchParams.get('r') || url.searchParams.get('request');
+      const domain = url.hostname;
 
-      console.log('TON Connect params:', { version, requestId, request });
+      console.log('TON Connect params:', { 
+        version, 
+        requestId, 
+        request: request ? request.substring(0, 50) + '...' : null,
+        domain,
+        fullUrl: connectUrl.substring(0, 100) + '...'
+      });
+
+      // Determine DApp name from domain
+      let dappName = 'Unknown DApp';
+      if (domain.includes('getgems')) {
+        dappName = 'GetGems';
+      } else if (domain.includes('fragment')) {
+        dappName = 'Fragment';
+      } else if (domain.includes('ton.diamonds')) {
+        dappName = 'TON Diamonds';
+      } else {
+        dappName = domain.split('.')[0] || 'DApp';
+      }
 
       // Here you would implement TON Connect protocol
-      // For now, show a message to the user
+      // For now, show a message to the user with connection details
       if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
         window.Telegram.WebApp.showAlert(
-          `TON Connect request detected!\n\n` +
+          `🔗 ${dappName} Connection Request\n\n` +
           `Version: ${version}\n` +
-          `Request ID: ${requestId || 'N/A'}\n\n` +
-          `TON Connect integration is coming soon!`
+          `Request ID: ${requestId || 'N/A'}\n` +
+          `Domain: ${domain}\n\n` +
+          `TON Connect integration is coming soon!\n\n` +
+          `This will allow you to connect your wallet to ${dappName} and interact with DApps.`
         );
       } else {
-        alert(`TON Connect request detected!\nVersion: ${version}\nRequest ID: ${requestId || 'N/A'}`);
+        alert(
+          `TON Connect request from ${dappName}!\n\n` +
+          `Version: ${version}\n` +
+          `Request ID: ${requestId || 'N/A'}\n` +
+          `Domain: ${domain}`
+        );
       }
     } catch (error) {
       console.error('Error parsing TON Connect URL:', error);
+      console.error('Original URL:', connectUrl);
+      
+      // Try to extract domain even if parsing fails
+      const domainMatch = connectUrl.match(/https?:\/\/([^\/]+)/);
+      const domain = domainMatch ? domainMatch[1] : 'unknown';
+      
       if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-        window.Telegram.WebApp.showAlert('Invalid TON Connect QR code format.');
+        window.Telegram.WebApp.showAlert(
+          `⚠️ Connection Request\n\n` +
+          `Domain: ${domain}\n\n` +
+          `This appears to be a DApp connection request.\n\n` +
+          `TON Connect integration is coming soon!`
+        );
       } else {
-        alert('Invalid TON Connect QR code format.');
+        alert(`Connection request from ${domain}`);
       }
     }
   };
@@ -260,14 +365,68 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
     // Handle DApp connection
     console.log('DApp connection:', dappUrl);
     
+    try {
+      const url = new URL(dappUrl);
+      const domain = url.hostname;
+      
+      // Determine DApp name
+      let dappName = 'DApp';
+      if (domain.includes('getgems')) {
+        dappName = 'GetGems';
+      } else if (domain.includes('fragment')) {
+        dappName = 'Fragment';
+      } else {
+        dappName = domain.split('.')[0] || 'DApp';
+      }
+      
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        window.Telegram.WebApp.showAlert(
+          `🔗 ${dappName} Connection\n\n` +
+          `URL: ${domain}\n\n` +
+          `DApp integration is coming soon!\n\n` +
+          `This will allow you to connect your wallet to ${dappName}.`
+        );
+      } else {
+        alert(`DApp connection: ${dappName} (${domain})`);
+      }
+    } catch (error) {
+      console.error('Error parsing DApp URL:', error);
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        window.Telegram.WebApp.showAlert(
+          `DApp connection detected!\n\n` +
+          `URL: ${dappUrl.substring(0, 50)}...\n\n` +
+          `DApp integration is coming soon!`
+        );
+      } else {
+        alert(`DApp connection: ${dappUrl.substring(0, 50)}...`);
+      }
+    }
+  };
+
+  const handleTONAddress = (address: string) => {
+    // Handle TON address QR code
+    console.log('TON Address detected:', address);
+    
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+      // Telegram WebApp doesn't have showConfirm, use showAlert with callback
       window.Telegram.WebApp.showAlert(
-        `DApp connection detected!\n\n` +
-        `URL: ${dappUrl}\n\n` +
-        `DApp integration is coming soon!`
+        `TON Address detected!\n\n` +
+        `${address}\n\n` +
+        `Would you like to send TON to this address?\n\n` +
+        `Press OK to open Send screen.`,
+        () => {
+          if (onSendClick) {
+            // Pre-fill send modal with this address
+            // This would require passing the address to SendModal
+            onSendClick();
+          }
+        }
       );
     } else {
-      alert(`DApp connection: ${dappUrl}`);
+      const confirmed = confirm(`TON Address: ${address}\n\nWould you like to send TON to this address?`);
+      if (confirmed && onSendClick) {
+        onSendClick();
+      }
     }
   };
 
@@ -275,28 +434,16 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
     // Handle generic QR code (could be address, etc.)
     console.log('Generic QR code:', qrData);
     
-    // Check if it's a TON address
-    if (qrData.match(/^[A-Za-z0-9_-]{48}$/) || qrData.startsWith('EQ') || qrData.startsWith('UQ')) {
-      // Looks like a TON address
-      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-        window.Telegram.WebApp.showAlert(
-          `TON Address detected!\n\n` +
-          `${qrData}\n\n` +
-          `Would you like to send TON to this address?`
-        );
-      } else {
-        alert(`TON Address: ${qrData}`);
-      }
+    // Show the scanned data to user
+    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+      window.Telegram.WebApp.showAlert(
+        `QR Code scanned:\n\n` +
+        `${qrData.substring(0, 100)}${qrData.length > 100 ? '...' : ''}\n\n` +
+        `Format: Unknown\n\n` +
+        `TON Connect integration coming soon!`
+      );
     } else {
-      // Unknown format
-      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-        window.Telegram.WebApp.showAlert(
-          `QR Code scanned:\n\n${qrData}\n\n` +
-          `Unknown format. TON Connect integration coming soon!`
-        );
-      } else {
-        alert(`QR Code: ${qrData}`);
-      }
+      alert(`QR Code: ${qrData.substring(0, 100)}${qrData.length > 100 ? '...' : ''}`);
     }
   };
 
