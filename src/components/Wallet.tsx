@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import useWalletStore from '../app/store';
 import { nanoToTon } from '../blockchain/ton';
+import QRScanner from './QRScanner';
 
 // Token prices in USD (approximate, can be updated from API)
 const TOKEN_PRICES: { [key: string]: number } = {
@@ -82,6 +83,7 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
   const [copied, setCopied] = useState(false);
   const [tokenPrices, setTokenPrices] = useState<{ [key: string]: number }>({});
   const [showAllTokens, setShowAllTokens] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   useEffect(() => {
     if (isUnlocked && wallet) {
@@ -170,6 +172,134 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
     return `${address.slice(0, 6)}...${address.slice(-6)}`;
   };
 
+  const handleQRScanClick = () => {
+    setShowQRScanner(true);
+  };
+
+  const handleQRScan = (qrData: string) => {
+    console.log('QR Code scanned:', qrData);
+    setShowQRScanner(false);
+    
+    // Parse TON Connect QR code
+    // TON Connect QR codes can be in format:
+    // - tonconnect://<protocol>?<params>
+    // - https://<domain>/ton-connect?<params>
+    
+    try {
+      if (qrData.startsWith('tonconnect://') || qrData.includes('ton-connect')) {
+        // Handle TON Connect connection
+        handleTONConnect(qrData);
+      } else if (qrData.startsWith('https://') || qrData.startsWith('http://')) {
+        // Check if it's a TON Connect link
+        const url = new URL(qrData);
+        if (url.searchParams.has('v') || url.pathname.includes('ton-connect')) {
+          handleTONConnect(qrData);
+        } else {
+          // Regular URL - could be a DApp
+          handleDAppConnection(qrData);
+        }
+      } else {
+        // Try to parse as TON address or other format
+        handleGenericQR(qrData);
+      }
+    } catch (error) {
+      console.error('Error processing QR code:', error);
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        window.Telegram.WebApp.showAlert('Invalid QR code format. Please scan a valid TON Connect QR code.');
+      } else {
+        alert('Invalid QR code format. Please scan a valid TON Connect QR code.');
+      }
+    }
+  };
+
+  const handleTONConnect = (connectUrl: string) => {
+    // Parse TON Connect URL
+    // Format: tonconnect://<protocol>?v=2&id=<request_id>&r=<request>
+    // or: https://<domain>/ton-connect?<params>
+    
+    try {
+      let url: URL;
+      
+      if (connectUrl.startsWith('tonconnect://')) {
+        // Convert tonconnect:// to https:// for parsing
+        const httpsUrl = connectUrl.replace('tonconnect://', 'https://');
+        url = new URL(httpsUrl);
+      } else {
+        url = new URL(connectUrl);
+      }
+
+      const version = url.searchParams.get('v') || '2';
+      const requestId = url.searchParams.get('id');
+      const request = url.searchParams.get('r');
+
+      console.log('TON Connect params:', { version, requestId, request });
+
+      // Here you would implement TON Connect protocol
+      // For now, show a message to the user
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        window.Telegram.WebApp.showAlert(
+          `TON Connect request detected!\n\n` +
+          `Version: ${version}\n` +
+          `Request ID: ${requestId || 'N/A'}\n\n` +
+          `TON Connect integration is coming soon!`
+        );
+      } else {
+        alert(`TON Connect request detected!\nVersion: ${version}\nRequest ID: ${requestId || 'N/A'}`);
+      }
+    } catch (error) {
+      console.error('Error parsing TON Connect URL:', error);
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        window.Telegram.WebApp.showAlert('Invalid TON Connect QR code format.');
+      } else {
+        alert('Invalid TON Connect QR code format.');
+      }
+    }
+  };
+
+  const handleDAppConnection = (dappUrl: string) => {
+    // Handle DApp connection
+    console.log('DApp connection:', dappUrl);
+    
+    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+      window.Telegram.WebApp.showAlert(
+        `DApp connection detected!\n\n` +
+        `URL: ${dappUrl}\n\n` +
+        `DApp integration is coming soon!`
+      );
+    } else {
+      alert(`DApp connection: ${dappUrl}`);
+    }
+  };
+
+  const handleGenericQR = (qrData: string) => {
+    // Handle generic QR code (could be address, etc.)
+    console.log('Generic QR code:', qrData);
+    
+    // Check if it's a TON address
+    if (qrData.match(/^[A-Za-z0-9_-]{48}$/) || qrData.startsWith('EQ') || qrData.startsWith('UQ')) {
+      // Looks like a TON address
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        window.Telegram.WebApp.showAlert(
+          `TON Address detected!\n\n` +
+          `${qrData}\n\n` +
+          `Would you like to send TON to this address?`
+        );
+      } else {
+        alert(`TON Address: ${qrData}`);
+      }
+    } else {
+      // Unknown format
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        window.Telegram.WebApp.showAlert(
+          `QR Code scanned:\n\n${qrData}\n\n` +
+          `Unknown format. TON Connect integration coming soon!`
+        );
+      } else {
+        alert(`QR Code: ${qrData}`);
+      }
+    }
+  };
+
   if (!isUnlocked || !wallet) {
     return (
       <div className="wallet-container">
@@ -200,7 +330,13 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
   const hasTokens = parseFloat(balanceTon) > 0 || jettonTokens.length > 0;
 
   return (
-    <div className="wallet-container">
+    <>
+      <QRScanner
+        isOpen={showQRScanner}
+        onClose={() => setShowQRScanner(false)}
+        onScan={handleQRScan}
+      />
+      <div className="wallet-container">
       {error && (
         <div className="error-banner" onClick={clearError}>
           <span>{error}</span>
@@ -210,6 +346,13 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
 
       <div className="wallet-header">
         <h2>TON Wallet</h2>
+        <button
+          className="qr-scan-button"
+          onClick={handleQRScanClick}
+          title="Scan QR Code"
+        >
+          <span className="qr-scan-icon">📷</span>
+        </button>
       </div>
 
       <div className="wallet-address">
@@ -408,6 +551,9 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
         }
 
         .wallet-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
           margin-bottom: 24px;
         }
 
@@ -415,6 +561,35 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
           margin: 0;
           font-size: 24px;
           font-weight: 600;
+          flex: 1;
+        }
+
+        .qr-scan-button {
+          background: rgba(102, 126, 234, 0.1);
+          border: none;
+          border-radius: 12px;
+          width: 44px;
+          height: 44px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.2s;
+          padding: 0;
+          flex-shrink: 0;
+        }
+
+        .qr-scan-button:hover {
+          background: rgba(102, 126, 234, 0.2);
+          transform: scale(1.05);
+        }
+
+        .qr-scan-button:active {
+          transform: scale(0.95);
+        }
+
+        .qr-scan-icon {
+          font-size: 24px;
         }
 
         .wallet-balance {
@@ -915,7 +1090,8 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
           }
         }
       `}</style>
-    </div>
+      </div>
+    </>
   );
 }
 
