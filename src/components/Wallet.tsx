@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react';
 import useWalletStore from '../app/store';
 import { nanoToTon } from '../blockchain/ton';
 import QRScanner from './QRScanner';
+import DAppConnectionModal from './DAppConnectionModal';
+import { parseTONConnectURL, decodeTONConnectRequest } from '../utils/tonconnect';
 
 // Token prices in USD (approximate, can be updated from API)
 const TOKEN_PRICES: { [key: string]: number } = {
@@ -84,6 +86,11 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
   const [tokenPrices, setTokenPrices] = useState<{ [key: string]: number }>({});
   const [showAllTokens, setShowAllTokens] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
+  const [showDAppConnection, setShowDAppConnection] = useState(false);
+  const [dAppConnectionData, setDAppConnectionData] = useState<{
+    manifestUrl: string;
+    requestId: string;
+  } | null>(null);
 
   useEffect(() => {
     if (isUnlocked && wallet) {
@@ -180,6 +187,15 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
     console.log('QR Code scanned:', qrData);
     setShowQRScanner(false);
     
+    // First, try to parse as TON Connect URL (tc:// or tonconnect://)
+    const tonConnectRequest = parseTONConnectURL(qrData);
+    
+    if (tonConnectRequest) {
+      // This is a TON Connect request
+      handleTONConnectRequest(tonConnectRequest);
+      return;
+    }
+    
     // Parse TON Connect QR code
     // TON Connect QR codes can be in format:
     // - tonconnect://<protocol>?<params>
@@ -188,9 +204,12 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
     
     try {
       // Check for TON Connect protocol
-      if (qrData.startsWith('tonconnect://')) {
-        handleTONConnect(qrData);
-        return;
+      if (qrData.startsWith('tonconnect://') || qrData.startsWith('tc://')) {
+        const request = parseTONConnectURL(qrData);
+        if (request) {
+          handleTONConnectRequest(request);
+          return;
+        }
       }
       
       // Check for HTTPS/HTTP URLs
@@ -207,8 +226,11 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
             url.pathname.includes('tonconnect');
           
           if (hasTonConnectParams) {
-            handleTONConnect(qrData);
-            return;
+            const request = parseTONConnectURL(qrData);
+            if (request) {
+              handleTONConnectRequest(request);
+              return;
+            }
           }
           
           // Check for known DApp domains
@@ -225,11 +247,22 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
           );
           
           if (isKnownDApp) {
+            // Try to parse as TON Connect
+            const request = parseTONConnectURL(qrData);
+            if (request) {
+              handleTONConnectRequest(request);
+              return;
+            }
             handleDAppConnection(qrData);
             return;
           }
           
           // Generic URL - try as DApp
+          const request = parseTONConnectURL(qrData);
+          if (request) {
+            handleTONConnectRequest(request);
+            return;
+          }
           handleDAppConnection(qrData);
           return;
         } catch (urlError) {
@@ -251,8 +284,11 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
       try {
         const jsonData = JSON.parse(qrData);
         if (jsonData.url || jsonData.connect) {
-          handleTONConnect(jsonData.url || jsonData.connect);
-          return;
+          const request = parseTONConnectURL(jsonData.url || jsonData.connect);
+          if (request) {
+            handleTONConnectRequest(request);
+            return;
+          }
         }
       } catch (jsonError) {
         // Not JSON, continue
@@ -273,6 +309,40 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
         );
       } else {
         alert(`QR Code Error: ${errorMsg}\n\nScanned: ${qrData.substring(0, 50)}...`);
+      }
+    }
+  };
+
+  const handleTONConnectRequest = async (request: { version: string; requestId: string; request: string }) => {
+    try {
+      // Decode the request
+      const decodedRequest = decodeTONConnectRequest(request.request);
+      
+      if (!decodedRequest || !decodedRequest.manifestUrl) {
+        throw new Error('Invalid TON Connect request: missing manifestUrl');
+      }
+
+      console.log('TON Connect request decoded:', {
+        version: request.version,
+        requestId: request.requestId,
+        manifestUrl: decodedRequest.manifestUrl,
+      });
+
+      // Show connection modal
+      setDAppConnectionData({
+        manifestUrl: decodedRequest.manifestUrl,
+        requestId: request.requestId,
+      });
+      setShowDAppConnection(true);
+    } catch (error) {
+      console.error('Error handling TON Connect request:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Failed to process connection request';
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        window.Telegram.WebApp.showAlert(
+          `Connection Error\n\n${errorMsg}\n\nPlease try scanning the QR code again.`
+        );
+      } else {
+        alert(`Connection Error: ${errorMsg}`);
       }
     }
   };
@@ -483,6 +553,26 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
         onClose={() => setShowQRScanner(false)}
         onScan={handleQRScan}
       />
+      {dAppConnectionData && wallet && (
+        <DAppConnectionModal
+          isOpen={showDAppConnection}
+          manifestUrl={dAppConnectionData.manifestUrl}
+          requestId={dAppConnectionData.requestId}
+          walletAddress={wallet.address}
+          walletPublicKey={wallet.publicKey}
+          onConnected={() => {
+            setShowDAppConnection(false);
+            setDAppConnectionData(null);
+            if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+              window.Telegram.WebApp.showAlert('Successfully connected to DApp!');
+            }
+          }}
+          onCancel={() => {
+            setShowDAppConnection(false);
+            setDAppConnectionData(null);
+          }}
+        />
+      )}
       <div className="wallet-container">
       {error && (
         <div className="error-banner" onClick={clearError}>
