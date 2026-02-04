@@ -349,10 +349,13 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
                          decodedRequest.url;
 
       // Extract returnUrl/callbackUrl for sending response back
+      // TON Connect protocol uses 'return_url' in the request
       const returnUrl = decodedRequest.returnUrl || 
                        decodedRequest.return_url ||
                        decodedRequest.callbackUrl ||
-                       decodedRequest.callback_url;
+                       decodedRequest.callback_url ||
+                       decodedRequest.returnUrl ||
+                       (decodedRequest.items && decodedRequest.items.find((item: any) => item.return_url)?.return_url);
 
       if (!manifestUrl) {
         console.error('Decoded request structure:', decodedRequest);
@@ -617,13 +620,9 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
           onConnected={() => {
             setShowDAppConnection(false);
             setDAppConnectionData(null);
-            if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-              try {
-                window.Telegram.WebApp.showAlert('Successfully connected to DApp!');
-              } catch (e) {
-                console.log('showAlert not supported:', e);
-              }
-            }
+            // Connection success - modal will close automatically
+            // Don't show alert as it's not supported in all Telegram WebApp versions
+            console.log('✅ Successfully connected to DApp');
           }}
           onCancel={() => {
             setShowDAppConnection(false);

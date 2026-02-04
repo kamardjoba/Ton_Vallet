@@ -256,6 +256,7 @@ export async function fetchDAppManifest(manifestUrl: string): Promise<TONConnect
 
 /**
  * Creates TON Connect response with wallet information
+ * According to TON Connect protocol v2 specification
  */
 export function createTONConnectResponse(
   requestId: string,
@@ -282,14 +283,30 @@ export function createTONConnectResponse(
 }
 
 /**
+ * Creates TON Connect response URL with encoded response
+ * Format: <callbackUrl>?result=<encoded_response>
+ */
+export function createTONConnectResponseURL(
+  callbackUrl: string,
+  response: string
+): string {
+  // URL-encode the response
+  const encodedResponse = encodeURIComponent(response);
+  
+  // Build URL with result parameter
+  const separator = callbackUrl.includes('?') ? '&' : '?';
+  return `${callbackUrl}${separator}result=${encodedResponse}`;
+}
+
+/**
  * Sends TON Connect response back to DApp
  * In Telegram Mini App, we can't use direct fetch due to CORS restrictions.
  * Instead, we use Telegram WebApp API to open the callback URL with response parameters.
  * 
- * TON Connect protocol supports:
- * 1. POST with JSON body (doesn't work in Mini App due to CORS)
- * 2. GET redirect with response in query params (works via openLink)
- * 3. Deep link back to dApp (if dApp supports it)
+ * According to TON Connect protocol:
+ * - Response should be sent to the callback URL specified in the request
+ * - Response format: GET request with `result` query parameter containing URL-encoded JSON response
+ * - dApp will process the response and establish the connection
  */
 export async function sendTONConnectResponse(
   responseUrl: string,
@@ -302,53 +319,41 @@ export async function sendTONConnectResponse(
       responsePreview: response.substring(0, 200) + '...',
     });
 
+    // Create the callback URL with encoded response
+    const callbackUrl = createTONConnectResponseURL(responseUrl, response);
+    
+    console.log('TON Connect callback URL:', {
+      originalUrl: responseUrl,
+      callbackUrl: callbackUrl.substring(0, 300) + '...',
+      responseLength: response.length,
+    });
+
     // In Telegram Mini App, we need to use openLink to send the response
     // because direct fetch is blocked by CORS
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
       try {
-        // Method 1: Try POST via openLink (if dApp supports it)
-        // Some dApps might accept POST data through a special mechanism
-        // But this is not standard, so we'll use GET with query params
-        
-        // Method 2: GET redirect with response in query params (standard approach)
-        // URL-encode the response for GET request
-        const encodedResponse = encodeURIComponent(response);
-        
-        // Build callback URL with response
-        const separator = responseUrl.includes('?') ? '&' : '?';
-        const callbackUrl = `${responseUrl}${separator}result=${encodedResponse}`;
-        
-        console.log('Opening TON Connect callback URL via Telegram WebApp:', {
-          url: callbackUrl.substring(0, 200) + '...',
-          method: 'GET redirect',
-        });
-        
         // Open the callback URL - this will navigate to dApp with the response
-        // The dApp should handle the response from query parameters
-        window.Telegram.WebApp.openLink(callbackUrl);
+        // The dApp should handle the response from query parameters and establish connection
+        window.Telegram.WebApp.openLink(callbackUrl, { try_instant_view: false });
         
         console.log('✅ Opened TON Connect callback URL via Telegram WebApp');
         // Return true - we've opened the link, dApp will process it
-        // Note: We can't verify if dApp received it, but this is the standard way
+        // The dApp will receive the response and establish the connection
         return true;
       } catch (openError) {
         console.error('Failed to open link via Telegram WebApp:', openError);
         return false;
       }
     } else {
-      // Fallback for non-Telegram environments (development)
-      // Try to use a hidden iframe or window.open
+      // Fallback for non-Telegram environments (development/testing)
       console.warn('Telegram WebApp not available, trying fallback methods');
       
       try {
-        // Create a hidden iframe to send the response
-        const encodedResponse = encodeURIComponent(response);
-        const separator = responseUrl.includes('?') ? '&' : '?';
-        const callbackUrl = `${responseUrl}${separator}result=${encodedResponse}`;
-        
-        // Try to create a hidden iframe (might still be blocked by CORS)
+        // Try to create a hidden iframe to send the response
         const iframe = document.createElement('iframe');
         iframe.style.display = 'none';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
         iframe.src = callbackUrl;
         document.body.appendChild(iframe);
         
@@ -357,18 +362,15 @@ export async function sendTONConnectResponse(
           if (iframe.parentNode) {
             iframe.parentNode.removeChild(iframe);
           }
-        }, 5000);
+        }, 3000);
         
         console.log('✅ Sent TON Connect response via iframe (fallback)');
         return true;
       } catch (iframeError) {
-        console.error('Iframe method also failed:', iframeError);
+        console.error('Iframe method failed:', iframeError);
         
-        // Last resort: try window.open (will open in new tab)
+        // Last resort: try window.open (will open in new tab/window)
         try {
-          const encodedResponse = encodeURIComponent(response);
-          const separator = responseUrl.includes('?') ? '&' : '?';
-          const callbackUrl = `${responseUrl}${separator}result=${encodedResponse}`;
           window.open(callbackUrl, '_blank');
           console.log('✅ Opened TON Connect callback URL in new window (last resort)');
           return true;

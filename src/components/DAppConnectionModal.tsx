@@ -130,7 +130,14 @@ export default function DAppConnectionModal({
         };
         saveTONConnectSession(session);
 
-        HapticFeedback.notification('success');
+        // Try haptic feedback (may not be supported in all versions)
+        try {
+          HapticFeedback.notification('success');
+        } catch (hapticError) {
+          console.log('HapticFeedback not supported:', hapticError);
+        }
+        
+        // Close modal and notify parent
         onConnected();
       } else {
         throw new Error('Failed to send connection response');
