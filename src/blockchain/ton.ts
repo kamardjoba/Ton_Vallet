@@ -603,15 +603,37 @@ export async function getTransactionHistory(
                 if (action.type === 'JettonTransfer' && action.JettonTransfer) {
                   const jettonTransfer = action.JettonTransfer;
                   // Try multiple ways to get transaction hash
-                  let txHash = event.event_id || 
-                               event.hash || 
-                               (event.in_tx && (event.in_tx.hash || event.in_tx.lt)) ||
-                               (event.out_tx && (event.out_tx.hash || event.out_tx.lt)) ||
-                               '';
+                  let txHash = '';
                   
-                  // Also try to get hash from account address and timestamp
+                  // Try in_tx first (incoming transaction)
+                  if (event.in_tx) {
+                    txHash = event.in_tx.hash || 
+                             event.in_tx.lt?.toString() || 
+                             (event.in_tx.tx_hash || '');
+                  }
+                  
+                  // Try out_tx (outgoing transaction)
+                  if (!txHash && event.out_tx) {
+                    txHash = event.out_tx.hash || 
+                             event.out_tx.lt?.toString() || 
+                             (event.out_tx.tx_hash || '');
+                  }
+                  
+                  // Fallback to event hash or event_id
+                  if (!txHash) {
+                    txHash = event.hash || 
+                             event.event_id || 
+                             (event.tx_hash || '');
+                  }
+                  
+                  // Also try to get hash from account address and timestamp as last resort
                   if (!txHash && event.account && event.timestamp) {
                     txHash = `${event.account.address}_${event.timestamp}`;
+                  }
+                  
+                  // Normalize hash (remove 0x prefix if present, convert to lowercase)
+                  if (txHash) {
+                    txHash = txHash.toString().toLowerCase().replace(/^0x/, '');
                   }
                   
                   if (txHash && jettonTransfer.jetton) {
@@ -694,7 +716,20 @@ export async function getTransactionHistory(
       console.log('🔍 in_msg:', tx.in_msg);
       console.log('🔍 out_msgs:', tx.out_msgs);
       
-      const hash = tx.transaction_id?.hash || tx.hash || tx.lt || '';
+      // Get transaction hash - try multiple formats
+      let hash = '';
+      if (tx.transaction_id && tx.transaction_id.hash) {
+        hash = tx.transaction_id.hash;
+      } else if (tx.hash) {
+        hash = tx.hash;
+      } else if (tx.lt) {
+        hash = tx.lt.toString();
+      }
+      
+      // Normalize hash for matching
+      const normalizedHash = hash ? hash.toString().toLowerCase().replace(/^0x/, '') : '';
+      const ltKey = tx.lt ? `lt_${tx.lt}` : '';
+      
       const timestamp = tx.utime ? tx.utime * 1000 : (tx.now ? tx.now * 1000 : Date.now());
       
       // Check for incoming transactions (in_msg exists)
@@ -755,11 +790,28 @@ export async function getTransactionHistory(
         let jettonAmount = '0';
         
         // First check if we have jetton info from TON API events
-        if (hash && jettonTransfersMap[hash]) {
+        // Try multiple hash formats for matching
+        let jettonInfo = null;
+        if (normalizedHash && jettonTransfersMap[normalizedHash]) {
+          jettonInfo = jettonTransfersMap[normalizedHash];
+        } else if (hash && jettonTransfersMap[hash]) {
+          jettonInfo = jettonTransfersMap[hash];
+        } else if (ltKey && jettonTransfersMap[ltKey]) {
+          jettonInfo = jettonTransfersMap[ltKey];
+        } else if (tx.lt && jettonTransfersMap[`lt_${tx.lt}`]) {
+          jettonInfo = jettonTransfersMap[`lt_${tx.lt}`];
+        }
+        
+        if (jettonInfo) {
           isJettonTransfer = true;
-          jettonSymbol = jettonTransfersMap[hash].symbol;
-          jettonAmount = jettonTransfersMap[hash].amount;
-          console.log('✅ Using jetton info from events API:', { hash, symbol: jettonSymbol, amount: jettonAmount });
+          jettonSymbol = jettonInfo.symbol;
+          jettonAmount = jettonInfo.amount;
+          console.log('✅ Using jetton info from events API:', { 
+            hash: normalizedHash || hash, 
+            lt: tx.lt,
+            symbol: jettonSymbol, 
+            amount: jettonAmount 
+          });
         } else {
           // Fallback: check message body/op code
           const msgBody = inMsg.msg_data || inMsg.body || inMsg.message || '';
@@ -789,37 +841,30 @@ export async function getTransactionHistory(
         
         // If source is not our address (or empty), it's an incoming transaction
         // Also check if in_msg exists but source is empty (system transaction or initial)
-        if (fromAddressNormalized && fromAddressNormalized !== walletAddressRaw) {
+        // For jetton transfers, include even if value is 0
+        const hasValue = value && value !== '0' && value !== '0n' && value !== '';
+        const shouldInclude = (fromAddressNormalized && fromAddressNormalized !== walletAddressRaw) || 
+                             (!fromAddressNormalized && tx.in_msg && (hasValue || isJettonTransfer));
+        
+        if (shouldInclude) {
           processedTransactions.push({
-            hash: hash || `in-${timestamp}-${fromAddress}`,
+            hash: hash || `in-${timestamp}-${fromAddress || 'system'}`,
             from: fromAddress || 'System',
             to: normalizedAddress,
-            value: value.toString(),
+            value: isJettonTransfer ? '0' : value.toString(), // For jetton, value is 0, amount is in jettonAmount
             timestamp,
             status: 'success',
             tokenType: isJettonTransfer ? 'JETTON' : 'TON',
             jettonSymbol: isJettonTransfer ? jettonSymbol : undefined,
             jettonAmount: isJettonTransfer ? jettonAmount : undefined,
           });
-          console.log('✅ Added incoming transaction', { isJettonTransfer, jettonSymbol });
-        } else if (!fromAddressNormalized && tx.in_msg) {
-          // Empty source might be initial transaction or system transaction
-          // Check if there's any value
-          const hasValue = value && value !== '0' && value !== '0n';
-          if (hasValue) {
-            processedTransactions.push({
-              hash: hash || `in-${timestamp}-system`,
-              from: 'System',
-              to: normalizedAddress,
-              value: value.toString(),
-              timestamp,
-              status: 'success',
-              tokenType: isJettonTransfer ? 'JETTON' : 'TON',
-              jettonSymbol: isJettonTransfer ? jettonSymbol : undefined,
-              jettonAmount: isJettonTransfer ? jettonAmount : undefined,
-            });
-            console.log('✅ Added system/incoming transaction (empty source)', { isJettonTransfer });
-          }
+          console.log('✅ Added incoming transaction', { 
+            isJettonTransfer, 
+            jettonSymbol, 
+            jettonAmount,
+            fromAddress: fromAddress || 'System',
+            value: isJettonTransfer ? '0 (jetton)' : value.toString()
+          });
         }
       }
       
@@ -862,11 +907,28 @@ export async function getTransactionHistory(
           let jettonAmount = '0';
           
           // First check if we have jetton info from TON API events
-          if (hash && jettonTransfersMap[hash]) {
+          // Try multiple hash formats for matching
+          let jettonInfo = null;
+          if (normalizedHash && jettonTransfersMap[normalizedHash]) {
+            jettonInfo = jettonTransfersMap[normalizedHash];
+          } else if (hash && jettonTransfersMap[hash]) {
+            jettonInfo = jettonTransfersMap[hash];
+          } else if (ltKey && jettonTransfersMap[ltKey]) {
+            jettonInfo = jettonTransfersMap[ltKey];
+          } else if (tx.lt && jettonTransfersMap[`lt_${tx.lt}`]) {
+            jettonInfo = jettonTransfersMap[`lt_${tx.lt}`];
+          }
+          
+          if (jettonInfo) {
             isJettonTransfer = true;
-            jettonSymbol = jettonTransfersMap[hash].symbol;
-            jettonAmount = jettonTransfersMap[hash].amount;
-            console.log('✅ Using jetton info from events API (outgoing):', { hash, symbol: jettonSymbol, amount: jettonAmount });
+            jettonSymbol = jettonInfo.symbol;
+            jettonAmount = jettonInfo.amount;
+            console.log('✅ Using jetton info from events API (outgoing):', { 
+              hash: normalizedHash || hash, 
+              lt: tx.lt,
+              symbol: jettonSymbol, 
+              amount: jettonAmount 
+            });
           } else {
             // Fallback: check message body/op code
             const msgBody = outMsg.msg_data || outMsg.body || outMsg.message || '';

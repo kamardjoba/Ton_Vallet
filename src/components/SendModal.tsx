@@ -9,7 +9,6 @@ import { validateTONAddress, validateTONAmount, validateComment } from '../utils
 import { HapticFeedback } from '../utils/telegram';
 import { formatError } from '../utils/errors';
 import LoadingSpinner from './LoadingSpinner';
-import AuthModal from './AuthModal';
 
 interface SendModalProps {
   isOpen: boolean;
@@ -17,17 +16,13 @@ interface SendModalProps {
 }
 
 export default function SendModal({ isOpen, onClose }: SendModalProps) {
-  const { sendTon, error, clearError, wallet, encryptedSeed } = useWalletStore();
+  const { sendTon, error, clearError, wallet, checkPassword } = useWalletStore();
   const [toAddress, setToAddress] = useState('');
   const [amount, setAmount] = useState('');
   const [comment, setComment] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [pendingTransaction, setPendingTransaction] = useState<{
-    toAddress: string;
-    amount: string;
-    comment?: string;
-  } | null>(null);
 
   if (!isOpen) return null;
 
@@ -57,37 +52,44 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
       return;
     }
 
-    // Store transaction details and show auth modal
-    console.log('Setting pending transaction and showing auth modal');
-    setPendingTransaction({
-      toAddress,
-      amount,
-      comment: comment || undefined,
-    });
-    console.log('Pending transaction set:', { toAddress, amount, comment: comment || undefined });
-    setShowAuthModal(true);
-    console.log('Auth modal should be visible now');
-  };
+    // Check password
+    if (!password) {
+      setPasswordError('Password is required');
+      HapticFeedback.notification('error');
+      return;
+    }
 
-  const handleAuthenticated = async () => {
-    if (!pendingTransaction) return;
-
-    setShowAuthModal(false);
     setIsLoading(true);
+    setPasswordError(null);
     clearError();
+    HapticFeedback.impact('light');
 
     try {
+      // Verify password
+      const isValid = await checkPassword(password);
+      
+      if (!isValid) {
+        setPasswordError('Invalid password. Please try again.');
+        setPassword('');
+        HapticFeedback.notification('error');
+        setIsLoading(false);
+        return;
+      }
+
+      // Password is correct, send transaction
       await sendTon(
-        pendingTransaction.toAddress,
-        pendingTransaction.amount,
-        pendingTransaction.comment
+        toAddress,
+        amount,
+        comment || undefined
       );
+      
       HapticFeedback.notification('success');
       // Reset form
       setToAddress('');
       setAmount('');
       setComment('');
-      setPendingTransaction(null);
+      setPassword('');
+      setPasswordError(null);
       onClose();
     } catch (err) {
       HapticFeedback.notification('error');
@@ -97,55 +99,20 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
     }
   };
 
-  const handlePasswordAuth = async (password: string) => {
-    // Import decryptSeedPhrase to verify password
-    const { decryptSeedPhrase } = await import('../crypto/crypto');
-    
-    if (!encryptedSeed) {
-      throw new Error('Wallet not initialized');
-    }
-    
-    // Verify password by attempting to decrypt seed phrase
-    // This doesn't change wallet state, just verifies the password
-    try {
-      await decryptSeedPhrase(encryptedSeed, password);
-      // Password is correct
-    } catch (error) {
-      // Password is incorrect
-      throw new Error('Invalid password');
-    }
-  };
-
   const handleClose = () => {
-    if (!isLoading && !showAuthModal) {
+    if (!isLoading) {
       setToAddress('');
       setAmount('');
       setComment('');
-      setPendingTransaction(null);
+      setPassword('');
+      setPasswordError(null);
       clearError();
       onClose();
     }
   };
 
-  const handleAuthCancel = () => {
-    setShowAuthModal(false);
-    setPendingTransaction(null);
-  };
-
-  console.log('SendModal render:', { isOpen, showAuthModal, pendingTransaction: !!pendingTransaction });
-
   return (
-    <>
-      {showAuthModal && (
-        <AuthModal
-          isOpen={showAuthModal}
-          walletAddress={wallet?.address || ''}
-          onAuthenticated={handleAuthenticated}
-          onPasswordAuth={handlePasswordAuth}
-          onCancel={handleAuthCancel}
-        />
-      )}
-      <div className="modal-overlay" onClick={handleClose} style={{ display: isOpen ? 'flex' : 'none' }}>
+    <div className="modal-overlay" onClick={handleClose} style={{ display: isOpen ? 'flex' : 'none' }}>
         <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Send TON</h2>
@@ -196,6 +163,27 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
             />
           </div>
 
+          <div className="input-group">
+            <label>Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setPasswordError(null);
+              }}
+              placeholder="Enter your wallet password"
+              className="password-input"
+              disabled={isLoading}
+              required
+            />
+            {passwordError && (
+              <div className="password-error">
+                {passwordError}
+              </div>
+            )}
+          </div>
+
           {error && (
             <div className="error-message animate-slide-up">
               {formatError(error)}
@@ -220,9 +208,16 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
             <button
               type="submit"
               className="send-button"
-              disabled={!toAddress || !amount || isLoading}
+              disabled={!toAddress || !amount || !password || isLoading}
             >
-              {isLoading ? 'Sending...' : 'Send'}
+              {isLoading ? (
+                <>
+                  <LoadingSpinner size="small" />
+                  <span>Sending...</span>
+                </>
+              ) : (
+                'Send'
+              )}
             </button>
           </div>
         </form>
@@ -323,7 +318,8 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
 
         .address-input,
         .amount-input,
-        .comment-input {
+        .comment-input,
+        .password-input {
           width: 100%;
           padding: 12px 16px;
           border: 2px solid #e0e0e0;
@@ -335,16 +331,27 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
 
         .address-input:focus,
         .amount-input:focus,
-        .comment-input:focus {
+        .comment-input:focus,
+        .password-input:focus {
           outline: none;
           border-color: #0088cc;
         }
 
         .address-input:disabled,
         .amount-input:disabled,
-        .comment-input:disabled {
+        .comment-input:disabled,
+        .password-input:disabled {
           background: #f5f5f5;
           cursor: not-allowed;
+        }
+
+        .password-error {
+          margin-top: 8px;
+          padding: 8px 12px;
+          background: #ffebee;
+          color: #c62828;
+          border-radius: 6px;
+          font-size: 13px;
         }
 
         .error-message {
@@ -404,6 +411,13 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
           cursor: not-allowed;
         }
 
+        .send-button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+        }
+
         @media (prefers-color-scheme: dark) {
           .modal-content {
             background: #2a2a2a;
@@ -423,7 +437,8 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
 
           .address-input,
           .amount-input,
-          .comment-input {
+          .comment-input,
+          .password-input {
             background: #333;
             border-color: #444;
             color: #e0e0e0;
@@ -436,7 +451,6 @@ export default function SendModal({ isOpen, onClose }: SendModalProps) {
         }
       `}</style>
       </div>
-    </>
   );
 }
 

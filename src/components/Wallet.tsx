@@ -8,6 +8,7 @@ import useWalletStore from '../app/store';
 import { nanoToTon } from '../blockchain/ton';
 import QRScanner from './QRScanner';
 import DAppConnectionModal from './DAppConnectionModal';
+import LogoutModal from './LogoutModal';
 import { parseTONConnectURL, decodeTONConnectRequest } from '../utils/tonconnect';
 
 // Token prices in USD (approximate, can be updated from API)
@@ -87,9 +88,11 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
   const [showAllTokens, setShowAllTokens] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showDAppConnection, setShowDAppConnection] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [dAppConnectionData, setDAppConnectionData] = useState<{
     manifestUrl: string;
     requestId: string;
+    returnUrl?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -345,6 +348,12 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
                          decodedRequest.manifest?.url ||
                          decodedRequest.url;
 
+      // Extract returnUrl/callbackUrl for sending response back
+      const returnUrl = decodedRequest.returnUrl || 
+                       decodedRequest.return_url ||
+                       decodedRequest.callbackUrl ||
+                       decodedRequest.callback_url;
+
       if (!manifestUrl) {
         console.error('Decoded request structure:', decodedRequest);
         throw new Error('Invalid TON Connect request: missing manifestUrl');
@@ -354,12 +363,15 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
         version: request.version,
         requestId: request.requestId,
         manifestUrl: manifestUrl,
+        returnUrl: returnUrl,
+        fullRequest: decodedRequest,
       });
 
       // Show connection modal
       setDAppConnectionData({
         manifestUrl: manifestUrl,
         requestId: request.requestId,
+        returnUrl: returnUrl, // Pass returnUrl to modal
       });
       setShowDAppConnection(true);
     } catch (error) {
@@ -599,13 +611,18 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
           isOpen={showDAppConnection}
           manifestUrl={dAppConnectionData.manifestUrl}
           requestId={dAppConnectionData.requestId}
+          returnUrl={dAppConnectionData.returnUrl}
           walletAddress={wallet.address}
           walletPublicKey={wallet.publicKey}
           onConnected={() => {
             setShowDAppConnection(false);
             setDAppConnectionData(null);
             if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-              window.Telegram.WebApp.showAlert('Successfully connected to DApp!');
+              try {
+                window.Telegram.WebApp.showAlert('Successfully connected to DApp!');
+              } catch (e) {
+                console.log('showAlert not supported:', e);
+              }
             }
           }}
           onCancel={() => {
@@ -614,6 +631,14 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
           }}
         />
       )}
+      <LogoutModal
+        isOpen={showLogoutModal}
+        onClose={() => setShowLogoutModal(false)}
+        onLogout={() => {
+          setShowLogoutModal(false);
+          // Wallet will be locked, App.tsx will handle showing login screen
+        }}
+      />
       <div className="wallet-container">
       {error && (
         <div className="error-banner" onClick={clearError}>
@@ -624,13 +649,22 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
 
       <div className="wallet-header">
         <h2>TON Wallet</h2>
-        <button
-          className="qr-scan-button"
-          onClick={handleQRScanClick}
-          title="Scan QR Code"
-        >
-          <span className="qr-scan-icon">📷</span>
-        </button>
+        <div className="wallet-header-actions">
+          <button
+            className="qr-scan-button"
+            onClick={handleQRScanClick}
+            title="Scan QR Code"
+          >
+            <span className="qr-scan-icon">📷</span>
+          </button>
+          <button
+            className="logout-button-header"
+            onClick={() => setShowLogoutModal(true)}
+            title="Logout"
+          >
+            <span className="logout-icon-header">🚪</span>
+          </button>
+        </div>
       </div>
 
       <div className="wallet-address">
@@ -842,7 +876,15 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
           flex: 1;
         }
 
-        .qr-scan-button {
+        .wallet-header-actions {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex-shrink: 0;
+        }
+
+        .qr-scan-button,
+        .logout-button-header {
           background: rgba(102, 126, 234, 0.1);
           border: none;
           border-radius: 12px;
@@ -857,16 +899,27 @@ export default function Wallet({ onSendClick, onReceiveClick, onHistoryClick, on
           flex-shrink: 0;
         }
 
-        .qr-scan-button:hover {
+        .qr-scan-button:hover,
+        .logout-button-header:hover {
           background: rgba(102, 126, 234, 0.2);
           transform: scale(1.05);
         }
 
-        .qr-scan-button:active {
+        .qr-scan-button:active,
+        .logout-button-header:active {
           transform: scale(0.95);
         }
 
-        .qr-scan-icon {
+        .logout-button-header {
+          background: rgba(198, 40, 40, 0.1);
+        }
+
+        .logout-button-header:hover {
+          background: rgba(198, 40, 40, 0.2);
+        }
+
+        .qr-scan-icon,
+        .logout-icon-header {
           font-size: 24px;
         }
 

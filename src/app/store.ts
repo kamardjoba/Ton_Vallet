@@ -45,6 +45,7 @@ interface WalletStore {
   initializeWallet: (seedPhrase: string, password: string) => Promise<void>;
   unlockWallet: (password: string) => Promise<void>;
   lockWallet: () => void;
+  checkPassword: (password: string) => Promise<boolean>;
   updateBalance: () => Promise<void>;
   sendTon: (toAddress: string, amount: string, comment?: string) => Promise<string>;
   refreshTransactions: () => Promise<void>;
@@ -191,6 +192,26 @@ const storeCreator: StateCreator<WalletStore, [], [], WalletStore> = (set, get) 
           transactions: [],
           hasLoadedBalance: false,
         });
+      },
+
+      /**
+       * Checks if password is correct without unlocking wallet
+       * Used for operations that require password verification
+       */
+      checkPassword: async (password: string): Promise<boolean> => {
+        const { encryptedSeed } = get();
+        if (!encryptedSeed) {
+          console.warn('checkPassword: Wallet not initialized, cannot verify password.');
+          return false;
+        }
+        try {
+          // Attempt to decrypt the seed phrase. If successful, password is correct.
+          await decryptSeedPhrase(encryptedSeed, password);
+          return true;
+        } catch (error) {
+          console.warn('checkPassword: Invalid password attempt.');
+          return false;
+        }
       },
 
       /**

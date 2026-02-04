@@ -19,6 +19,7 @@ interface DAppConnectionModalProps {
   isOpen: boolean;
   manifestUrl: string;
   requestId: string;
+  returnUrl?: string; // Optional return URL for callback
   walletAddress: string;
   walletPublicKey: string;
   onConnected: () => void;
@@ -29,6 +30,7 @@ export default function DAppConnectionModal({
   isOpen,
   manifestUrl,
   requestId,
+  returnUrl,
   walletAddress,
   walletPublicKey,
   onConnected,
@@ -85,12 +87,36 @@ export default function DAppConnectionModal({
         walletPublicKey
       );
 
-      // Extract response URL from manifest
-      // TON Connect typically uses the manifest URL's origin + /tonconnect/callback
-      const manifestUrlObj = new URL(manifest.url);
-      const responseUrl = `${manifestUrlObj.origin}/tonconnect/callback`;
+      // Determine response URL
+      // Priority: 1. returnUrl from request, 2. manifest origin + /tonconnect/callback, 3. manifest.url origin
+      let responseUrl = '';
+      
+      if (returnUrl) {
+        // Use returnUrl from the request if available
+        responseUrl = returnUrl;
+        console.log('Using returnUrl from request:', responseUrl);
+      } else {
+        // Fallback: construct callback URL from manifest
+        try {
+          const manifestUrlObj = new URL(manifest.url);
+          // Try common TON Connect callback paths
+          const possiblePaths = [
+            '/tonconnect/callback',
+            '/ton-connect/callback',
+            '/callback',
+          ];
+          
+          // Try to find the correct callback path
+          responseUrl = `${manifestUrlObj.origin}${possiblePaths[0]}`;
+          console.log('Constructed callback URL from manifest:', responseUrl);
+        } catch (urlError) {
+          console.error('Error constructing callback URL:', urlError);
+          throw new Error('Failed to determine callback URL');
+        }
+      }
 
       // Send response to DApp
+      console.log('Sending TON Connect response to:', responseUrl);
       const success = await sendTONConnectResponse(responseUrl, response);
 
       if (success) {
