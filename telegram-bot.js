@@ -1,65 +1,65 @@
 /**
  * Telegram Bot for TON Wallet
- * Отвечает на команду /start и предоставляет кнопку для открытия веб-приложения
+ * Responds to /start command and provides a button to open the web application
  */
 
-// Используем createRequire для импорта CommonJS модуля в ES модуле
+// Use createRequire to import CommonJS module in ES module
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const TelegramBot = require('node-telegram-bot-api');
 
-// Замените на токен вашего бота от @BotFather
+// Replace with your bot token from @BotFather
 const BOT_TOKEN = process.env.BOT_TOKEN || '8151674191:AAG0YD7gweXcqZ7cHckMf15ny86fRIG5nvE';
 
-// URL вашего веб-приложения (замените на ваш Netlify URL или другой хостинг)
+// URL of your web application (replace with your Netlify URL or other hosting)
 const WEB_APP_URL = process.env.WEB_APP_URL || 'https://tonvallet.netlify.app';
 
-// Создаем экземпляр бота
+// Create bot instance
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// Обработчик команды /start
+// Handler for /start command
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  const firstName = msg.from.first_name || 'Пользователь';
+  const firstName = msg.from.first_name || 'User';
 
-  const welcomeMessage = `👋 Привет, ${firstName}!
+  const welcomeMessage = `👋 Hello, ${firstName}!
 
-💰 Добро пожаловать в TON Wallet!
+💰 Welcome to TON Wallet!
 
-Это безопасный кошелек для работы с криптовалютой TON (The Open Network). 
+This is a secure wallet for working with TON cryptocurrency (The Open Network). 
 
-🔐 Основные возможности:
-• Создание нового кошелька
-• Восстановление кошелька по seed фразе
-• Отправка и получение TON
-• Просмотр истории транзакций
-• Управление NFT коллекциями
-• Работа с Jetton токенами
+🔐 Main Features:
+• Create new wallet
+• Restore wallet from seed phrase
+• Send and receive TON
+• View transaction history
+• Manage NFT collections
+• Work with Jetton tokens
 
-🛡️ Безопасность:
-• Ваши приватные ключи хранятся только на вашем устройстве
-• Seed фраза шифруется с помощью пароля
-• Все операции выполняются локально в браузере
+🛡️ Security:
+• Your private keys are stored only on your device
+• Seed phrase is encrypted with a password
+• All operations are performed locally in the browser
 
-Нажмите кнопку ниже, чтобы открыть кошелек:`;
+Click the button below to open the wallet:`;
 
-  // Создаем inline клавиатуру с кнопкой для открытия веб-приложения
+  // Create inline keyboard with button to open web application
   const options = {
     reply_markup: {
       inline_keyboard: [
         [
           {
-            text: '🚀 Открыть TON Wallet',
+            text: '🚀 Open TON Wallet',
             web_app: { url: WEB_APP_URL }
           }
         ],
         [
           {
-            text: '📖 Помощь',
+            text: '📖 Help',
             callback_data: 'help'
           },
           {
-            text: 'ℹ️ О кошельке',
+            text: 'ℹ️ About Wallet',
             callback_data: 'about'
           }
         ]
@@ -70,86 +70,86 @@ bot.onText(/\/start/, (msg) => {
   bot.sendMessage(chatId, welcomeMessage, options);
 });
 
-// Обработчик callback кнопок
+// Handler for callback buttons
 bot.on('callback_query', (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
 
   if (data === 'help') {
-    const helpMessage = `📖 Помощь по использованию TON Wallet
+    const helpMessage = `📖 TON Wallet Usage Guide
 
-🔹 Создание кошелька:
-1. Нажмите "Открыть TON Wallet"
-2. Выберите "Create Wallet"
-3. Придумайте надежный пароль (минимум 8 символов)
-4. Сохраните seed фразу в безопасном месте
-5. Подтвердите seed фразу
+🔹 Creating a Wallet:
+1. Click "Open TON Wallet"
+2. Select "Create Wallet"
+3. Create a strong password (minimum 8 characters)
+4. Save your seed phrase in a safe place
+5. Confirm your seed phrase
 
-🔹 Восстановление кошелька:
-1. Нажмите "Restore Wallet"
-2. Введите вашу seed фразу (24 слова)
-3. Создайте новый пароль
+🔹 Restoring a Wallet:
+1. Click "Restore Wallet"
+2. Enter your seed phrase (24 words)
+3. Create a new password
 
-🔹 Отправка TON:
-1. Разблокируйте кошелек
-2. Нажмите "Send"
-3. Введите адрес получателя
-4. Укажите сумму
-5. Подтвердите транзакцию
+🔹 Sending TON:
+1. Unlock your wallet
+2. Click "Send"
+3. Enter recipient address
+4. Enter amount
+5. Confirm transaction
 
-⚠️ Важно:
-• Никогда не делитесь своей seed фразой
-• Храните seed фразу в безопасном месте
-• Используйте надежный пароль`;
+⚠️ Important:
+• Never share your seed phrase
+• Store your seed phrase in a safe place
+• Use a strong password`;
 
     bot.sendMessage(chatId, helpMessage);
     bot.answerCallbackQuery(query.id);
   } else if (data === 'about') {
-    const aboutMessage = `ℹ️ О TON Wallet
+    const aboutMessage = `ℹ️ About TON Wallet
 
-TON Wallet - это безопасный и удобный кошелек для работы с криптовалютой TON (The Open Network).
+TON Wallet is a secure and convenient wallet for working with TON cryptocurrency (The Open Network).
 
-🌐 Технологии:
+🌐 Technologies:
 • React + TypeScript
 • TON Blockchain
 • Telegram Mini App API
-• Web Crypto API для безопасности
+• Web Crypto API for security
 
-🔒 Безопасность:
-• Все операции выполняются локально
-• Приватные ключи не покидают ваше устройство
-• Шифрование с использованием AES-GCM
-• Защита от timing attacks
+🔒 Security:
+• All operations are performed locally
+• Private keys never leave your device
+• Encryption using AES-GCM
+• Protection against timing attacks
 
-💡 Особенности:
-• Работает прямо в Telegram
-• Не требует установки
-• Поддержка NFT
-• Работа с Jetton токенами
-• История транзакций
+💡 Features:
+• Works directly in Telegram
+• No installation required
+• NFT support
+• Jetton token support
+• Transaction history
 
-Версия: 1.0.0`;
+Version: 1.0.0`;
 
     bot.sendMessage(chatId, aboutMessage);
     bot.answerCallbackQuery(query.id);
   }
 });
 
-// Обработчик команды /help
+// Handler for /help command
 bot.onText(/\/help/, (msg) => {
   const chatId = msg.chat.id;
-  bot.sendMessage(chatId, 'Используйте команду /start для начала работы с ботом.');
+  bot.sendMessage(chatId, 'Use the /start command to begin working with the bot.');
 });
 
-// Обработчик ошибок
+// Error handler
 bot.on('polling_error', (error) => {
   console.error('Polling error:', error);
 });
 
-// Обработчик запуска бота
-console.log('🤖 TON Wallet Bot запущен!');
+// Bot startup handler
+console.log('🤖 TON Wallet Bot started!');
 console.log(`📱 Web App URL: ${WEB_APP_URL}`);
-console.log('Ожидание сообщений...');
+console.log('Waiting for messages...');
 
-// Экспорт для использования в других модулях (если нужно)
+// Export for use in other modules (if needed)
 export default bot;

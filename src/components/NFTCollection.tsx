@@ -66,7 +66,7 @@ export default function NFTCollection({ onBack, onNFTClick, onWalletClick, onHis
 
       <div className="collection-content">
         {error && (
-          <div className={`error-banner ${error.includes('rate limit') || error.includes('Rate limit') || error.includes('лимит') ? 'rate-limit' : ''}`} onClick={() => setError(null)}>
+          <div className={`error-banner ${error.includes('rate limit') || error.includes('Rate limit') ? 'rate-limit' : ''}`} onClick={() => setError(null)}>
             <span>{error}</span>
             <button className="error-close">×</button>
           </div>
